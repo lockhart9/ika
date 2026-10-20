@@ -23,6 +23,9 @@ pub struct Args {
     /// プロダクト概要（kb/projects/）と projects.csv を含めない。KB を書き出すときだけ効く
     #[arg(long)]
     no_projects: bool,
+    /// `ika import` で取り込んだ資料（sources/）の全文も含める。量が多く、社外秘の資料もありうるので既定では含めない
+    #[arg(long)]
+    with_sources: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -37,17 +40,19 @@ enum Target {
 struct Scope {
     domains: Vec<String>,
     projects: bool,
+    sources: bool,
 }
 
 pub fn run(root: &Path, args: Args) -> Result<()> {
     let scope = Scope {
         domains: args.domains,
         projects: !args.no_projects,
+        sources: args.with_sources,
     };
     match args.target {
         Target::Claude => {
-            if !args.with_kb && (!scope.domains.is_empty() || !scope.projects) {
-                bail!("--domain・--no-projects は --with-kb と一緒に使います");
+            if !args.with_kb && (!scope.domains.is_empty() || !scope.projects || scope.sources) {
+                bail!("--domain・--no-projects・--with-sources は --with-kb と一緒に使います");
             }
             claude(root, args.with_kb.then_some(&scope))
         }
@@ -186,6 +191,9 @@ fn write_knowledge(home: &Path, out: &Path, scope: &Scope) -> Result<Vec<String>
         let mut knowledge = format!("# ika ナレッジ: {group}\n");
         for file in &files {
             let rel = file.strip_prefix(home).unwrap_or(file);
+            if !scope.sources && crate::import::is_source_path(rel) {
+                continue;
+            }
             let text = fs::read_to_string(file)
                 .with_context(|| format!("{} を読めません", rel.display()))?;
             knowledge.push_str(&format!(

@@ -19,6 +19,8 @@ kb/
     notes/YYYY/  insights/  decisions/
   projects/<name>/README.md  プロダクト概要（ビジネスと技術の両面をまとめる。領域には属さない）
   projects/<name>/specs/     要件書（機能ごと。cycle スキルが作り、実装したら今の形に直す）
+  projects/<name>/sources/   取り込んだ外部の資料の全文（ika import が作る。直接編集しない）
+  <領域>/sources/            プロダクトに属さない外部の資料の全文（市場レポートなど）
 ```
 
 ### どちらの領域に置くか
@@ -42,13 +44,14 @@ kb/
 ```yaml
 ---
 title: 内容が分かる一文のタイトル
-type: note            # project | spec | note | insight | decision
+type: note            # project | spec | note | insight | decision | source
 date: 2026-10-14      # 作成日。insight と project は最終更新日として使う
 projects: [foo]       # data/projects.csv の name。横断的な内容なら複数、無関係なら []
 tags: [foo, bar-baz]  # 小文字・ハイフン区切り
 source: https://...   # 任意。出典URL
 status: accepted      # decision と spec のみ必須。decision: proposed | accepted | superseded | rejected
                       # spec: draft | approved | done | dropped
+# source のみ（ika import が書く）: source（原本の URL かパス。必須）、format（md・docx・pdf など）、hash（原本の SHA-256）
 ---
 ```
 
@@ -60,6 +63,7 @@ status: accepted      # decision と spec のみ必須。decision: proposed | ac
 | note | `<領域>/notes/YYYY/` | `YYYY-MM-DD-<slug>.md` | 情報収集・調査・ログ。原則追記のみ |
 | insight | `<領域>/insights/` | `<slug>.md` | 蒸留した知見。根拠の note へリンクし、育てる |
 | decision | `<領域>/decisions/` | `YYYY-MM-DD-<slug>.md` | 意思決定。覆したら新しい decision を作り、古い方を `superseded` にする |
+| source | `projects/<name>/sources/`・`<領域>/sources/` | `<slug>.md` | 外部のドキュメント（仕様書・Drive・Notion・docx・xlsx・pptx・pdf・html）の全文。`ika import` で作り、同じ `source` で取り込み直すと上書きされる。直接編集せず、要点は README・要件書・ノートに書いてリンクする。原本のリンクを前提にしているので、本文のリンク切れは `ika check` で確かめない |
 | spec | `projects/<name>/specs/` | `<slug>.md` | 要件書。機能1つ分の目的・範囲・受け入れ条件。`draft`（承認待ち）→ `approved` → `done`（実装済み。作った形に直す）、やめたら `dropped`。`projects` は置き場所のプロダクト1つ |
 
 プロダクト固有の資料が増えたら `projects/<name>/` の下に置いてよい（type は内容に合わせる）。
@@ -72,6 +76,7 @@ status: accepted      # decision と spec のみ必須。decision: proposed | ac
 | **今の状態**（設計・仕様・スキーマ・ドメインモデル。変わると古くなる） | `projects/<name>/README.md`、またはその下の資料。更新して育てる |
 | 複数のノートから言える一般化された知見 | insight。ノートのコピーではなく、AI が書き直して一文に絞り、根拠のノートへリンクする |
 | 決めたこと | decision |
+| 外部のドキュメントそのもの | source（`ika import`）。全文は写しとして置き、判断に使う要点は上のどれかに書き起こす |
 | これから作るもの・作ったものの要件 | spec（`ika new spec "タイトル" --project <name> --slug <英字>`）。方式の選択など判断が要る点は decision にして要件書からリンクする |
 
 ノートは溜めてよいが、溜まったら `ika kb orphans` で、どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートを確認し、insight に蒸留する。README の「関連」は索引なので、整理済みとは数えない。

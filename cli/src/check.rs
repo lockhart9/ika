@@ -171,7 +171,10 @@ fn check_file(
     }
 
     problems.extend(check_location(rel, &fields, &file_projects, domains));
-    problems.extend(check_links(root, rel, text));
+    // 取り込んだ資料のリンクは原本の置き場所を前提にしているので、KB の中では確かめない
+    if fields.get("type").is_none_or(|t| t != "source") {
+        problems.extend(check_links(root, rel, text));
+    }
     problems
 }
 
@@ -208,6 +211,22 @@ fn check_location(
                     "status は {} のいずれかです",
                     SPEC_STATUSES.join(" / ")
                 ));
+            }
+        }
+        "source" => {
+            let in_project = dir == "projects"
+                && parts.len() == 5
+                && parts[3] == "sources"
+                && file_projects.iter().any(|p| p == parts[2].as_ref());
+            let in_domain = domains.contains(dir) && parts.len() == 4 && parts[2] == "sources";
+            if !in_project && !in_domain {
+                problems.push(
+                    "type: source は kb/projects/<name>/sources/ か kb/<領域>/sources/ に置きます（`ika import` で作る）"
+                        .into(),
+                );
+            }
+            if fields.get("source").is_none_or(|s| s.is_empty()) {
+                problems.push("source（原本の URL かパス）がありません".into());
             }
         }
         "note" | "insight" | "decision" => {

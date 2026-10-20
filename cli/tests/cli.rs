@@ -2212,3 +2212,87 @@ fn new_spec_goes_under_the_project_and_passes_check() {
     assert!(!check.ok);
     assert!(format!("{}{}", check.out, check.err).contains("draft / approved / done / dropped"));
 }
+
+#[test]
+fn import_writes_a_source_and_reimports_only_when_changed() {
+    let f = Fixture::new("import-source");
+    let original = f.dir.join("work/spec.md");
+    fs::write(
+        &original,
+        "---\nauthor: x\n---\n# Shift Spec\n\n本文 [設計](design.md)\n",
+    )
+    .unwrap();
+    let path = original.to_str().unwrap();
+
+    assert!(!f.ika(&["import", path]).ok, "置き場所が必要");
+    let run = f.ika(&["import", path, "--project", "foo", "--tags", "spec"]);
+    assert!(run.ok, "{}", run.err);
+    let rel = "kb/projects/foo/sources/shift-spec.md";
+    assert!(run.out.contains(rel), "{}", run.out);
+    let text = f.read(rel);
+    assert!(text.contains("title: Shift Spec\ntype: source\n"), "{text}");
+    assert!(text.contains("tags: [spec]\nsource: /"), "{text}");
+    assert!(text.contains("format: md\nhash: "));
+    assert!(!text.contains("author: x"), "原本のフロントマターは外す");
+    assert!(text.contains("# Shift Spec\n\n本文 [設計](design.md)"));
+
+    let check = f.ika(&["check"]);
+    assert!(
+        check.ok,
+        "原本の相対リンクは確かめない: {}{}",
+        check.out, check.err
+    );
+
+    let again = f.ika(&["import", path, "--project", "foo"]);
+    assert!(again.out.contains("変更なし"), "{}", again.out);
+
+    fs::write(&original, "# Shift Spec\n\n本文を直した\n追記\n").unwrap();
+    let changed = f.ika(&["import", path, "--project", "foo"]);
+    assert!(
+        changed.out.contains("取り込み直しました（+2 -1 行）"),
+        "{}",
+        changed.out
+    );
+    let text = f.read(rel);
+    assert!(
+        text.contains("本文を直した") && text.contains("tags: [spec]"),
+        "{text}"
+    );
+
+    let list = f.ika(&["import", "--list", "-p", "foo"]);
+    assert!(
+        list.out.contains(rel) && list.out.contains(path),
+        "{}",
+        list.out
+    );
+}
+
+#[test]
+fn import_from_stdin_needs_source_and_title() {
+    let f = Fixture::new("import-stdin");
+    let base = ["import", "-", "--domain", "tech"];
+    assert!(!f.ika_with(&base, Some("本文\n")).ok, "--source が必要");
+    let with_source = [&base[..], &["--source", "https://notion.so/page-1"]].concat();
+    assert!(
+        !f.ika_with(&with_source, Some("本文\n")).ok,
+        "--title が必要"
+    );
+
+    let full = [
+        &with_source[..],
+        &["--title", "料金表", "--slug", "pricing"],
+    ]
+    .concat();
+    let run = f.ika_with(&full, Some("| a | b |\n"));
+    assert!(run.ok, "{}", run.err);
+    let text = f.read("kb/tech/sources/pricing.md");
+    assert!(text.contains("source: https://notion.so/page-1"));
+    assert!(text.contains("projects: []"));
+    assert!(f.ika(&["check"]).ok);
+
+    let print = f.ika_with(
+        &["import", "-", "--print", "--format", "csv"],
+        Some("x,y\n1,2\n"),
+    );
+    assert_eq!(print.out, "| x | y |\n|---|---|\n| 1 | 2 |\n");
+}

@@ -161,7 +161,7 @@ pub fn render(template: &str, vars: &[(&str, &str)]) -> String {
 }
 
 /// 英数字以外をハイフンにまとめ、小文字にする。日本語だけのタイトルは空になる
-fn slugify(text: &str) -> String {
+pub fn slugify(text: &str) -> String {
     let mut slug = String::new();
     for c in text.chars() {
         if c.is_ascii_alphanumeric() {
