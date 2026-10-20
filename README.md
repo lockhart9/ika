@@ -49,6 +49,7 @@ AI は `kb/` や `data/` のファイルを直接いじらず、必ず `ika` コ
 | 知見 | `kb/<領域>/insights/` | 複数のノートから蒸留したもの。育てて更新する |
 | 決定 | `kb/<領域>/decisions/` | 背景・選択肢・決定・理由の記録 |
 | プロダクト | `kb/projects/<name>/README.md` | サービスや副業ごとの概要 |
+| 要件書 | `kb/projects/<name>/specs/` | 機能ごとの目的・範囲・受け入れ条件。実装したら今の形に直す |
 | 表データ | `data/datasets.sqlite3` | 件数が増えていく数値や記録。`ika data` で扱う |
 
 領域は最初から `business`（ビジネス・ドメイン知識）と `tech`（技術）に分けてあります。書式の詳細は [`docs/kb-format.md`](docs/kb-format.md) と [`docs/data-format.md`](docs/data-format.md) です。
@@ -97,6 +98,7 @@ ika install             # Claude Code と Codex に登録して入れる
 | `decide` | 「〜を決めたい」「判断材料を整理して」 | 過去の経緯を踏まえて論点を整理し、決定を記録する |
 | `project-add` | 「新しいサービスを始めたので登録して」 | プロダクトを登録し、概要の README を作る |
 | `project-sync` | 「〜の現状を KB に反映して」 | リポジトリを読んで、プロダクト概要を最新にする |
+| `cycle` | 「〜を調べて作って」「次の打ち手を進めて」 | 調査 → 要件 → 実装 → テスト → コミットを回し、各段階の結果を KB に戻す。要件の承認で1回だけ止まる |
 
 CLI を直接使う場合のよく使うコマンドです。全コマンドは `ika --help` で見られます。
 

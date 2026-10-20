@@ -37,6 +37,7 @@ const SHARED: &[(&str, &str, Option<&[&str]>)] = &[
         "assets/decision.md",
         Some(&["decide"]),
     ),
+    ("templates/spec.md", "assets/spec.md", Some(&["cycle"])),
     (
         "templates/project.md",
         "assets/project.md",

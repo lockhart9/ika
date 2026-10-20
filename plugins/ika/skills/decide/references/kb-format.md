@@ -18,6 +18,7 @@ kb/
   tech/                    技術
     notes/YYYY/  insights/  decisions/
   projects/<name>/README.md  プロダクト概要（ビジネスと技術の両面をまとめる。領域には属さない）
+  projects/<name>/specs/     要件書（機能ごと。cycle スキルが作り、実装したら今の形に直す）
 ```
 
 ### どちらの領域に置くか
@@ -41,12 +42,13 @@ kb/
 ```yaml
 ---
 title: 内容が分かる一文のタイトル
-type: note            # project | note | insight | decision
+type: note            # project | spec | note | insight | decision
 date: 2026-10-14      # 作成日。insight と project は最終更新日として使う
 projects: [foo]       # data/projects.csv の name。横断的な内容なら複数、無関係なら []
 tags: [foo, bar-baz]  # 小文字・ハイフン区切り
 source: https://...   # 任意。出典URL
-status: accepted      # decision のみ必須: proposed | accepted | superseded | rejected
+status: accepted      # decision と spec のみ必須。decision: proposed | accepted | superseded | rejected
+                      # spec: draft | approved | done | dropped
 ---
 ```
 
@@ -58,6 +60,7 @@ status: accepted      # decision のみ必須: proposed | accepted | superseded 
 | note | `<領域>/notes/YYYY/` | `YYYY-MM-DD-<slug>.md` | 情報収集・調査・ログ。原則追記のみ |
 | insight | `<領域>/insights/` | `<slug>.md` | 蒸留した知見。根拠の note へリンクし、育てる |
 | decision | `<領域>/decisions/` | `YYYY-MM-DD-<slug>.md` | 意思決定。覆したら新しい decision を作り、古い方を `superseded` にする |
+| spec | `projects/<name>/specs/` | `<slug>.md` | 要件書。機能1つ分の目的・範囲・受け入れ条件。`draft`（承認待ち）→ `approved` → `done`（実装済み。作った形に直す）、やめたら `dropped`。`projects` は置き場所のプロダクト1つ |
 
 プロダクト固有の資料が増えたら `projects/<name>/` の下に置いてよい（type は内容に合わせる）。
 
@@ -69,6 +72,7 @@ status: accepted      # decision のみ必須: proposed | accepted | superseded 
 | **今の状態**（設計・仕様・スキーマ・ドメインモデル。変わると古くなる） | `projects/<name>/README.md`、またはその下の資料。更新して育てる |
 | 複数のノートから言える一般化された知見 | insight。ノートのコピーではなく、AI が書き直して一文に絞り、根拠のノートへリンクする |
 | 決めたこと | decision |
+| これから作るもの・作ったものの要件 | spec（`ika new spec "タイトル" --project <name> --slug <英字>`）。方式の選択など判断が要る点は decision にして要件書からリンクする |
 
 ノートは溜めてよいが、溜まったら `ika kb orphans` で、どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートを確認し、insight に蒸留する。README の「関連」は索引なので、整理済みとは数えない。
 

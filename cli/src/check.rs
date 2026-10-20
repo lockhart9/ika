@@ -12,6 +12,7 @@ use crate::skills;
 
 const REQUIRED: &[&str] = &["title", "type", "date", "projects", "tags"];
 const DECISION_STATUSES: &[&str] = &["proposed", "accepted", "superseded", "rejected"];
+pub const SPEC_STATUSES: &[&str] = &["draft", "approved", "done", "dropped"];
 
 /// `root` は KB のデータ（IKA_HOME）。`repo` が分かれば、プラグインの検証もする
 pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
@@ -192,6 +193,21 @@ fn check_location(
                 problems.push("type: project は kb/projects/<name>/README.md に置きます".into());
             } else if file_projects != [name] {
                 problems.push(format!("projects は [{name}] にしてください"));
+            }
+        }
+        "spec" => {
+            let name = parts.get(2).map(|s| s.as_ref()).unwrap_or("");
+            if dir != "projects" || parts.len() != 5 || parts[3] != "specs" {
+                problems.push("type: spec は kb/projects/<name>/specs/ に置きます".into());
+            } else if file_projects != [name] {
+                problems.push(format!("projects は [{name}] にしてください"));
+            }
+            let status = fields.get("status").map(String::as_str).unwrap_or("");
+            if !SPEC_STATUSES.contains(&status) {
+                problems.push(format!(
+                    "status は {} のいずれかです",
+                    SPEC_STATUSES.join(" / ")
+                ));
             }
         }
         "note" | "insight" | "decision" => {

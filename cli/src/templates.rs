@@ -6,6 +6,7 @@ pub fn get(name: &str) -> Option<&'static str> {
         "note" => include_str!("../../templates/note.md"),
         "insight" => include_str!("../../templates/insight.md"),
         "decision" => include_str!("../../templates/decision.md"),
+        "spec" => include_str!("../../templates/spec.md"),
         "project" => include_str!("../../templates/project.md"),
         _ => return None,
     })

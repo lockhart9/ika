@@ -17,10 +17,10 @@ pub struct Args {
     kind: Kind,
     /// タイトル
     title: String,
-    /// 領域（data/domains.csv の name。例: business, tech）
+    /// 領域（data/domains.csv の name。例: business, tech）。spec では指定しない（プロダクトの下に置く）
     #[arg(short, long)]
-    domain: String,
-    /// 関連プロダクト（複数指定可）
+    domain: Option<String>,
+    /// 関連プロダクト（複数指定可。spec は置き場所になるプロダクトを1つだけ）
     #[arg(short, long = "project")]
     projects: Vec<String>,
     /// タグ（カンマ区切り）
@@ -42,6 +42,8 @@ enum Kind {
     Note,
     Insight,
     Decision,
+    /// 要件書。kb/projects/<name>/specs/ に置く
+    Spec,
 }
 
 impl Kind {
@@ -50,20 +52,28 @@ impl Kind {
             Kind::Note => "note",
             Kind::Insight => "insight",
             Kind::Decision => "decision",
+            Kind::Spec => "spec",
         }
     }
 }
 
 pub fn run(root: &Path, args: Args) -> Result<()> {
-    if !registry::domains(root)?
-        .iter()
-        .any(|d| d.name == args.domain)
-    {
-        bail!(
-            "未登録の領域です: {}（`ika domain list` で確認してください）",
-            args.domain
-        );
-    }
+    let place = match (args.kind, &args.domain) {
+        (Kind::Spec, Some(_)) => {
+            bail!("spec は領域に属さないので --domain は付けません（--project の下に置きます）")
+        }
+        (Kind::Spec, None) => match args.projects.as_slice() {
+            [project] => project.clone(),
+            _ => bail!("spec は置き場所になるプロダクトを --project で1つだけ指定してください"),
+        },
+        (_, None) => bail!("--domain で領域を指定してください（`ika domain list` で確認できます）"),
+        (_, Some(domain)) => {
+            if !registry::domains(root)?.iter().any(|d| &d.name == domain) {
+                bail!("未登録の領域です: {domain}（`ika domain list` で確認してください）");
+            }
+            domain.clone()
+        }
+    };
     let known = registry::projects(root)?;
     for project in &args.projects {
         if !known.iter().any(|p| &p.name == project) {
@@ -87,7 +97,7 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
         );
     }
 
-    let path = target_path(root, &args.domain, args.kind, &date, &slug);
+    let path = target_path(root, &place, args.kind, &date, &slug);
     if path.exists() {
         bail!("すでに存在します: {}", path.display());
     }
@@ -122,8 +132,16 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
     Ok(())
 }
 
-fn target_path(root: &Path, domain: &str, kind: Kind, date: &str, slug: &str) -> PathBuf {
-    let kb = root.join("kb").join(domain);
+/// `place` は note・insight・decision なら領域、spec ならプロダクト名
+fn target_path(root: &Path, place: &str, kind: Kind, date: &str, slug: &str) -> PathBuf {
+    if let Kind::Spec = kind {
+        return root
+            .join("kb/projects")
+            .join(place)
+            .join("specs")
+            .join(format!("{slug}.md"));
+    }
+    let kb = root.join("kb").join(place);
     match kind {
         Kind::Note => kb
             .join("notes")
@@ -131,6 +149,7 @@ fn target_path(root: &Path, domain: &str, kind: Kind, date: &str, slug: &str) ->
             .join(format!("{date}-{slug}.md")),
         Kind::Insight => kb.join("insights").join(format!("{slug}.md")),
         Kind::Decision => kb.join("decisions").join(format!("{date}-{slug}.md")),
+        Kind::Spec => unreachable!("spec は先に返している"),
     }
 }
 

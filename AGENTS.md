@@ -21,6 +21,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `kb/<領域>/insights/` | 複数のメモから蒸留した知見。日付なし、育てて更新する |
 | `kb/<領域>/decisions/` | 意思決定の記録（背景・選択肢・決定・理由） |
 | `kb/projects/<name>/README.md` | プロダクトの概要（ビジネスと技術の両面）。1プロダクト1ディレクトリ |
+| `kb/projects/<name>/specs/` | 要件書（`type: spec`。機能ごと。`cycle` スキルが作り、実装後に今の形へ直す） |
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
 | `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。全データセットを1ファイルに持つ。人は直接読まず、`ika data` と `ika serve` で扱う |
@@ -55,6 +56,11 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 - 既存のノートがあれば新規作成より更新を優先する（特に `insights/` と `kb/projects/`）
 - 各サービスのリポジトリ（`data/projects.csv` の `path`）は読むだけにし、このリポジトリから書き換えない
 - KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/datasets.sqlite3` も `sqlite3` コマンドなどで直接触らない（外部プロジェクトの作業中も、このリポジトリの中でも同じ）。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
+
+## 調査から実装まで回すとき
+
+- `cycle` スキルで、テーマ1つを「調査 → 要件（`kb/projects/<name>/specs/`）→ 実装 → テスト → コミット → KB の更新」の順に進める。要件の承認で1回だけ止まり、承認後はローカルの作業ブランチへのコミットまで進める（push・PR・デプロイはしない）
+- 最後に README の「課題・次の打ち手」を更新し、それが次の回のテーマになる
 
 ## ノートを溜めたとき
 
@@ -100,6 +106,7 @@ ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]  
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
 ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須
+ika new spec "タイトル" --project <name> --slug <英字> [--stdin]   # 要件書を kb/projects/<name>/specs/ に作る（--domain は付けない。status: draft で始まる）
 ika kb ls [kb/tech]             # kb/ 配下の Markdown を一覧（パスは IKA_HOME 下の kb/ から。kb/ の外は操作できない）
 ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ
 ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では新しい日付が先
