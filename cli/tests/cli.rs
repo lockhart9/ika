@@ -2227,7 +2227,7 @@ fn import_writes_a_source_and_reimports_only_when_changed() {
     assert!(!f.ika(&["import", path]).ok, "置き場所が必要");
     let run = f.ika(&["import", path, "--project", "foo", "--tags", "spec"]);
     assert!(run.ok, "{}", run.err);
-    let rel = "kb/projects/foo/sources/shift-spec.md";
+    let rel = "kb/projects/foo/sources/spec.md";
     assert!(run.out.contains(rel), "{}", run.out);
     let text = f.read(rel);
     assert!(text.contains("title: Shift Spec\ntype: source\n"), "{text}");
@@ -2295,4 +2295,59 @@ fn import_from_stdin_needs_source_and_title() {
         Some("x,y\n1,2\n"),
     );
     assert_eq!(print.out, "| x | y |\n|---|---|\n| 1 | 2 |\n");
+}
+
+#[test]
+fn import_falls_back_to_the_directory_when_file_names_collide() {
+    let f = Fixture::new("import-collide");
+    for dir in ["20260617-photo-comment", "20260930-web-push"] {
+        fs::create_dir_all(f.dir.join("work/docs").join(dir)).unwrap();
+        fs::write(
+            f.dir.join("work/docs").join(dir).join("requirements.md"),
+            format!("# 要件定義 {dir}\n"),
+        )
+        .unwrap();
+    }
+    let a = f
+        .dir
+        .join("work/docs/20260617-photo-comment/requirements.md");
+    let b = f.dir.join("work/docs/20260930-web-push/requirements.md");
+    let run = f.ika(&[
+        "import",
+        a.to_str().unwrap(),
+        b.to_str().unwrap(),
+        "--project",
+        "foo",
+    ]);
+    assert!(run.ok, "{}", run.err);
+    assert!(f.exists("kb/projects/foo/sources/requirements.md"));
+    assert!(f.exists("kb/projects/foo/sources/20260930-web-push-requirements.md"));
+
+    let again = f.ika(&["import", b.to_str().unwrap(), "--project", "foo"]);
+    assert!(
+        again.out.contains("変更なし"),
+        "原本で見分ける: {}",
+        again.out
+    );
+}
+
+#[test]
+fn edit_accepts_text_starting_with_a_hyphen() {
+    let f = Fixture::new("edit-hyphen");
+    let path = "kb/tech/notes/2026/2026-10-14-list.md";
+    f.write(
+        path,
+        "---\ntitle: t\ntype: note\ndate: 2026-10-14\nprojects: []\ntags: []\n---\n\n- 古い項目\n",
+    );
+    let run = f.ika(&[
+        "kb",
+        "edit",
+        path,
+        "--old",
+        "- 古い項目",
+        "--new",
+        "- 新しい項目",
+    ]);
+    assert!(run.ok, "{}", run.err);
+    assert!(f.read(path).contains("- 新しい項目"));
 }
