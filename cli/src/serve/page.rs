@@ -589,7 +589,7 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
         .into_iter()
         .map(|p| p.name)
         .collect();
-    let kinds: Vec<_> = ["decision", "insight", "project", "spec", "note"]
+    let kinds: Vec<_> = ["decision", "insight", "project", "spec", "note", "source"]
         .map(String::from)
         .into();
 

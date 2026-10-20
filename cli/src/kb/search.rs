@@ -22,7 +22,7 @@ pub struct Args {
     /// タグ（フロントマターの tags に含まれるもの）
     #[arg(short, long)]
     pub(crate) tag: Option<String>,
-    /// 種類（project / spec / note / insight / decision）
+    /// 種類（project / spec / note / insight / decision / source）
     #[arg(long = "type")]
     pub(crate) kind: Option<String>,
     /// decision の status（proposed / accepted / superseded / rejected）、spec の status（draft / approved / done / dropped）
@@ -124,7 +124,7 @@ pub fn has_status(kind: &str) -> bool {
 }
 
 /// 並び順（小さいほど先）・日付・表示用のラベル。種類ごとの信頼度に応じて重みを付ける:
-/// 採用済みの決定 → 知見 → プロダクト概要・承認済みと実装済みの要件 → 案の決定・下書きの要件 → ノート
+/// 採用済みの決定 → 知見 → プロダクト概要・承認済みと実装済みの要件 → 案の決定・下書きの要件 → ノート・取り込んだ資料
 /// → 覆された・却下の決定・取り下げた要件 → その他
 fn weight(text: &str) -> (usize, String, String) {
     let fields = frontmatter::parse(text).ok().flatten().unwrap_or_default();
@@ -135,7 +135,7 @@ fn weight(text: &str) -> (usize, String, String) {
         ("insight", _) => 1,
         ("project", _) | ("spec", "approved" | "done") => 2,
         ("decision", "proposed") | ("spec", "draft") => 3,
-        ("note", _) => 4,
+        ("note" | "source", _) => 4,
         ("decision" | "spec", _) => 5,
         _ => 6,
     };

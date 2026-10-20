@@ -3,6 +3,7 @@ mod data;
 mod domain;
 mod export;
 mod frontmatter;
+mod import;
 mod init;
 mod install;
 mod kb;
@@ -56,6 +57,8 @@ enum Command {
     Serve(serve::Args),
     /// テンプレートからノートを作る
     New(new::Args),
+    /// 外部のドキュメント（md・html・docx・xlsx・pptx・pdf・csv）を Markdown にして KB に取り込む
+    Import(import::Args),
     /// フロントマター・登録簿・リンク・プラグインを検証する
     Check,
     /// 正本（docs/kb-format.md・templates/）をプラグインのスキルにコピーする
@@ -99,6 +102,7 @@ fn run() -> anyhow::Result<ExitCode> {
         Command::Kb { command } => kb::run(&root::data_dir()?, command)?,
         Command::Serve(args) => serve::run(&root::data_dir()?, args)?,
         Command::New(args) => new::run(&root::data_dir()?, args)?,
+        Command::Import(args) => import::run(args)?,
         Command::Check => return check::run(&root::data_dir()?, root::repo().ok().as_deref()),
         // ika のリポジトリ（プラグイン・ひな形）を扱う開発用コマンド
         Command::Sync => skills::sync(&root::repo()?)?,

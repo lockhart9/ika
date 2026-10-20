@@ -22,6 +22,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `kb/<領域>/decisions/` | 意思決定の記録（背景・選択肢・決定・理由） |
 | `kb/projects/<name>/README.md` | プロダクトの概要（ビジネスと技術の両面）。1プロダクト1ディレクトリ |
 | `kb/projects/<name>/specs/` | 要件書（`type: spec`。機能ごと。`cycle` スキルが作り、実装後に今の形へ直す） |
+| `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 取り込んだ外部の資料の全文（`type: source`。`ika import` が作り、取り込み直すと上書きされる。直接編集しない） |
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
 | `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。全データセットを1ファイルに持つ。人は直接読まず、`ika data` と `ika serve` で扱う |
@@ -56,6 +57,11 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 - 既存のノートがあれば新規作成より更新を優先する（特に `insights/` と `kb/projects/`）
 - 各サービスのリポジトリ（`data/projects.csv` の `path`）は読むだけにし、このリポジトリから書き換えない
 - KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/datasets.sqlite3` も `sqlite3` コマンドなどで直接触らない（外部プロジェクトの作業中も、このリポジトリの中でも同じ）。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
+
+## 外部のドキュメントを取り込むとき
+
+- `import` スキルで、製品リポジトリの仕様書・Google Drive・Notion・手元の docx・xlsx・pptx・pdf・html を `ika import` で取り込む。全文は `sources/` に写しとして置き、判断に使う要点は README・要件書・ノートに書き起こしてリンクする
+- 取り込んだ資料は直接編集しない（取り込み直すと上書きされる）。`ika export` は既定で含めない（`--with-sources`）
 
 ## 調査から実装まで回すとき
 
@@ -107,6 +113,10 @@ ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
 ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須
 ika new spec "タイトル" --project <name> --slug <英字> [--stdin]   # 要件書を kb/projects/<name>/specs/ に作る（--domain は付けない。status: draft で始まる）
+ika import <file>... --project <name> | --domain <領域> [--project ...] [--tags ...] [--slug ...] [--title ...] [--source <URL>]   # 外部のドキュメント（md・html・csv・docx・xlsx・xls・ods・pptx・pdf）を Markdown にして sources/ に全文で置く。変換は Rust だけで行う。同じ source で取り込み直すと、変わっていたときだけ上書きする
+ika import - --project <name> --source <URL> --title "..." [--format md|html|csv]   # 標準入力から（Drive・Notion の MCP で取った本文など）
+ika import <file> --print       # KB に書かず、変換した Markdown を表示する
+ika import --list [-p <name>]   # 取り込み済みの資料と原本の一覧
 ika kb ls [kb/tech]             # kb/ 配下の Markdown を一覧（パスは IKA_HOME 下の kb/ から。kb/ の外は操作できない）
 ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ
 ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では新しい日付が先
@@ -127,6 +137,6 @@ ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサ�
 ika check                       # KB・登録簿・データセット定義の検証。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
-ika export claude [--with-kb] [--domain <領域>]... [--no-projects]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る
+ika export claude [--with-kb] [--domain <領域>]... [--no-projects] [--with-sources]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る
 ika export chatgpt [--domain <領域>]... [--no-projects]   # dist/chatgpt/（ChatGPT web のプロジェクト用。IKA_HOME の KB を束ねる。リポジトリ内で実行）
 ```

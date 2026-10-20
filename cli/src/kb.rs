@@ -282,7 +282,7 @@ fn refuse_registered_readme(root: &Path, abs: &Path, action: &str) -> Result<()>
 }
 
 /// 書いた結果を報告し、Markdown なら検証の指摘を添える
-fn done(root: &Path, verb: &str, rel: &Path, text: &str) -> Result<()> {
+pub fn done(root: &Path, verb: &str, rel: &Path, text: &str) -> Result<()> {
     println!("{verb}: {}", rel.display());
     report(root, rel, text)
 }

@@ -90,8 +90,8 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
     }
 }
 
-/// 一覧での並び順（要件 → 決定 → 知見 → ノート → その他）
-const SHOW_ORDER: &[&str] = &["spec", "decision", "insight", "note"];
+/// 一覧での並び順（要件 → 決定 → 知見 → ノート → 取り込んだ資料 → その他）
+const SHOW_ORDER: &[&str] = &["spec", "decision", "insight", "note", "source"];
 
 /// `projects:` にそのプロダクトを含む要件・ノート・決定・知見（README 自身は除く）
 pub struct Related {
