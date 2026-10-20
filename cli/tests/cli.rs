@@ -278,6 +278,63 @@ fn cat_ls_and_search_work_from_outside() {
     );
 }
 
+const LONG_NOTE: &str = "---\ntitle: n\ntype: note\ndate: 2026-10-14\nprojects: [foo]\ntags: [auth]\n---\n\n## 要点\n\n要点の本文\n\n## 詳細\n\n詳細の本文\n\n### 補足\n\n補足の本文\n\n## 詳細\n\n二つ目\n";
+
+#[test]
+fn cat_reads_only_a_part() {
+    let f = Fixture::new("cat-part");
+    let path = "kb/tech/notes/2026/2026-10-14-a.md";
+    f.write(path, LONG_NOTE);
+
+    let outline = f.ika(&["kb", "cat", path, "--outline"]);
+    assert!(outline.ok, "{}", outline.err);
+    assert!(
+        outline.out.starts_with(&format!("{path}  全 ")),
+        "{}",
+        outline.out
+    );
+    assert!(outline.out.contains("L1-7"), "{}", outline.out);
+    assert!(outline.out.contains("## 要点"), "{}", outline.out);
+    assert!(outline.out.contains("### 補足"), "{}", outline.out);
+
+    assert_eq!(
+        f.ika(&["kb", "cat", path, "--section", "要点"]).out,
+        "## 要点\n\n要点の本文\n\n"
+    );
+    assert_eq!(
+        f.ika(&["kb", "cat", path, "--section", "### 補足"]).out,
+        "### 補足\n\n補足の本文\n\n"
+    );
+    // 同名の見出しが複数あれば、候補を示して失敗する
+    let ambiguous = f.ika(&["kb", "cat", path, "--section", "詳細"]);
+    assert!(!ambiguous.ok);
+    assert!(ambiguous.err.contains("2 か所"), "{}", ambiguous.err);
+    let missing = f.ika(&["kb", "cat", path, "--section", "無い"]);
+    assert!(!missing.ok);
+    assert!(missing.err.contains("## 要点"), "{}", missing.err);
+
+    assert_eq!(
+        f.ika(&["kb", "cat", path, "--lines", "9:11"]).out,
+        "## 要点\n\n要点の本文\n"
+    );
+    assert_eq!(f.ika(&["kb", "cat", path, "--lines", "9"]).out, "## 要点\n");
+    assert!(!f.ika(&["kb", "cat", path, "--lines", "999"]).ok);
+    assert!(!f.ika(&["kb", "cat", path, "--lines", "0:3"]).ok);
+
+    assert_eq!(
+        f.ika(&["kb", "cat", path, "--frontmatter"]).out,
+        "---\ntitle: n\ntype: note\ndate: 2026-10-14\nprojects: [foo]\ntags: [auth]\n---\n"
+    );
+
+    // 部分指定は同時に1つだけ
+    assert!(
+        !f.ika(&["kb", "cat", path, "--outline", "--lines", "1:2"])
+            .ok
+    );
+    // 部分指定も kb/ の外は読めない
+    assert!(!f.ika(&["kb", "cat", "data/projects.csv", "--outline"]).ok);
+}
+
 #[test]
 fn paths_outside_kb_are_rejected() {
     let f = Fixture::new("escape");
