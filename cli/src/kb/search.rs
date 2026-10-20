@@ -22,10 +22,10 @@ pub struct Args {
     /// タグ（フロントマターの tags に含まれるもの）
     #[arg(short, long)]
     pub(crate) tag: Option<String>,
-    /// 種類（project / note / insight / decision）
+    /// 種類（project / spec / note / insight / decision）
     #[arg(long = "type")]
     pub(crate) kind: Option<String>,
-    /// decision の status（proposed / accepted / superseded / rejected）
+    /// decision の status（proposed / accepted / superseded / rejected）、spec の status（draft / approved / done / dropped）
     #[arg(long)]
     pub(crate) status: Option<String>,
     /// 検索語のどれか1つでも含めば対象にする（表記ゆれ用。既定はすべて含むファイル）
@@ -118,8 +118,14 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
     Ok(())
 }
 
+/// status を表示する種類（decision・spec）
+pub fn has_status(kind: &str) -> bool {
+    matches!(kind, "decision" | "spec")
+}
+
 /// 並び順（小さいほど先）・日付・表示用のラベル。種類ごとの信頼度に応じて重みを付ける:
-/// 採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された・却下の決定 → その他
+/// 採用済みの決定 → 知見 → プロダクト概要・承認済みと実装済みの要件 → 案の決定・下書きの要件 → ノート
+/// → 覆された・却下の決定・取り下げた要件 → その他
 fn weight(text: &str) -> (usize, String, String) {
     let fields = frontmatter::parse(text).ok().flatten().unwrap_or_default();
     let field = |key: &str| fields.get(key).map(String::as_str).unwrap_or("");
@@ -127,13 +133,13 @@ fn weight(text: &str) -> (usize, String, String) {
     let rank = match (kind, status) {
         ("decision", "accepted") => 0,
         ("insight", _) => 1,
-        ("project", _) => 2,
-        ("decision", "proposed") => 3,
+        ("project", _) | ("spec", "approved" | "done") => 2,
+        ("decision", "proposed") | ("spec", "draft") => 3,
         ("note", _) => 4,
-        ("decision", _) => 5,
+        ("decision" | "spec", _) => 5,
         _ => 6,
     };
-    let label = if status.is_empty() || kind != "decision" {
+    let label = if status.is_empty() || !has_status(kind) {
         kind.to_string()
     } else {
         format!("{kind} {status}")
@@ -204,6 +210,17 @@ mod tests {
             "decision accepted"
         );
         assert_eq!(weight(&doc("note", "")).2, "note");
+    }
+
+    #[test]
+    fn weight_places_specs_by_status() {
+        let doc = |status: &str| {
+            format!("---\ntitle: t\ntype: spec\nprojects: [foo]\ntags: []\nstatus: {status}\n---\n")
+        };
+        let rank = |status: &str| weight(&doc(status)).0;
+        assert_eq!(rank("approved"), rank("done"));
+        assert!(rank("done") < rank("draft") && rank("draft") < rank("dropped"));
+        assert_eq!(weight(&doc("draft")).2, "spec draft");
     }
 
     #[test]

@@ -20,7 +20,8 @@ KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレク
 3. `kb/projects/<name>/README.md` を更新する。対象リポジトリで作業中でも `ika kb cat kb/projects/<name>/README.md` で読み、`ika kb edit`（部分置換）か `ika kb write --overwrite`（全文）で書く。KB のファイルを直接 Write/Edit しない
    - 「現状」に直近の動きを日付付きで1〜3行
    - 「技術」の変化（メジャーバージョン、構成変更）
-   - 「課題・次の打ち手」はリポジトリの TODO・docs から拾い、推測なら「推測」と書く
+   - 「課題・次の打ち手」はリポジトリの TODO・docs から拾い、推測なら「推測」と書く。`cycle` スキルが次のテーマに使うので、1行1件で何をなぜやるかが分かるように書く
+   - `ika kb search --type spec --status approved -p <name> -l` で承認済みの要件書を確かめ、実装済みなのに `approved` のままなら `done` にして「実装の記録」を足す
    - フロントマターの `date` を今日にする
 4. URL や一行説明が変わっていたら `ika project set <name> --url ... --summary ...` で `data/projects.csv` を直す（CSV を直接編集しない）
 5. 複数プロダクトに共通する気づきがあれば `capture` スキルで insight を提案する（同じ技術課題・運用の手間 → `tech`、同じ集客・収益の課題 → `business`）

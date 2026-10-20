@@ -2170,3 +2170,45 @@ mod data {
         assert!(!check.ok && check.out.contains("stray"), "{}", check.out);
     }
 }
+
+#[test]
+fn new_spec_goes_under_the_project_and_passes_check() {
+    let f = Fixture::new("spec");
+    let base = ["new", "spec", "Shift export", "--date", "2026-10-21"];
+
+    let with_domain = [&base[..], &["--project", "foo", "--domain", "tech"]].concat();
+    assert!(
+        !f.ika_with(&with_domain, Some("")).ok,
+        "spec に領域は付けない"
+    );
+    assert!(!f.ika_with(&base, Some("")).ok, "プロダクトが必要");
+    let two = [&base[..], &["--project", "foo", "--project", "foo"]].concat();
+    assert!(!f.ika_with(&two, Some("")).ok, "プロダクトは1つだけ");
+
+    let run = f.ika_with(&[&base[..], &["--project", "foo"]].concat(), None);
+    assert!(run.ok, "{}", run.err);
+    let path = "kb/projects/foo/specs/shift-export.md";
+    assert_eq!(run.out.trim(), path);
+    let text = f.read(path);
+    assert!(text.contains("type: spec\n") && text.contains("status: draft\n"));
+    assert!(text.contains("受け入れ条件"));
+
+    let check = f.ika(&["check"]);
+    assert!(check.ok, "{}{}", check.out, check.err);
+
+    let show = f.ika(&["project", "show", "foo"]);
+    assert!(show.out.contains("[spec draft]"), "{}", show.out);
+
+    f.ika(&[
+        "kb",
+        "edit",
+        path,
+        "--old",
+        "status: draft",
+        "--new",
+        "status: wip",
+    ]);
+    let check = f.ika(&["check"]);
+    assert!(!check.ok);
+    assert!(format!("{}{}", check.out, check.err).contains("draft / approved / done / dropped"));
+}

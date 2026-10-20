@@ -41,6 +41,7 @@ article p { margin:1em 0; } article li { margin:.3em 0; } article h2:first-child
 .badge { display:inline-block; padding:0 .5rem; border-radius:1rem; font-size:.78rem; border:1px solid var(--line); background:var(--soft); margin-right:.3rem; }
 .badge.decision { border-color:var(--accent); color:var(--accent); }
 .badge.insight { border-color:var(--link); color:var(--link); }
+.badge.spec { border-color:var(--accent); }
 ul.list { list-style:none; padding:0; margin:.5rem 0; }
 ul.list li { padding:.35rem 0; border-bottom:1px solid var(--line); }
 ul.list .path { display:block; color:var(--muted); font-size:.8rem; word-break:break-all; }
@@ -120,7 +121,7 @@ fn badge(kind: &str, status: &str) -> String {
     if kind.is_empty() {
         return String::new();
     }
-    let label = if status.is_empty() || kind != "decision" {
+    let label = if status.is_empty() || !crate::kb::search::has_status(kind) {
         kind.to_string()
     } else {
         format!("{kind} {status}")
@@ -588,7 +589,7 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
         .into_iter()
         .map(|p| p.name)
         .collect();
-    let kinds: Vec<_> = ["decision", "insight", "project", "note"]
+    let kinds: Vec<_> = ["decision", "insight", "project", "spec", "note"]
         .map(String::from)
         .into();
 
