@@ -62,6 +62,8 @@ struct Input {
     source: String,
     /// ファイル名（拡張子なし）。標準入力なら None
     stem: Option<String>,
+    /// ファイルのあるディレクトリの名前（ファイル名が重なったときに前に付ける）。標準入力なら None
+    parent: Option<String>,
 }
 
 pub fn run(args: Args) -> Result<()> {
@@ -154,6 +156,7 @@ fn read_input(path: &Path, args: &Args) -> Result<Input> {
             format: args.format.unwrap_or(Format::Md),
             source,
             stem: None,
+            parent: None,
         });
     }
     if path.is_dir() {
@@ -184,6 +187,10 @@ fn read_input(path: &Path, args: &Args) -> Result<Input> {
         format,
         source,
         stem: path.file_stem().map(|s| s.to_string_lossy().into_owned()),
+        parent: fs::canonicalize(path)?
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|p| p.to_string_lossy().into_owned()),
     })
 }
 
@@ -244,30 +251,51 @@ fn import_one(
         .or_else(|| input.stem.clone())
         .context("標準入力から取り込むときは --title でタイトルを指定してください")?
         .replace(['\n', '\r'], " ");
-    let slug = [
-        args.slug.as_deref(),
-        Some(&doc.title),
-        input.stem.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .map(new::slugify)
-    .find(|s| !s.is_empty())
-    .context("ファイル名にする英字を作れません。--slug で内容が分かる英字を指定してください")?;
-    let rel = place.dir.join(format!("{slug}.md"));
-    let abs = root.join(&rel);
-    if abs.exists() {
+    let candidates = slug_candidates(args.slug.as_deref(), &doc.title, &input);
+    if candidates.is_empty() {
+        bail!("ファイル名にする英字を作れません。--slug で内容が分かる英字を指定してください");
+    }
+    let Some(rel) = candidates
+        .iter()
+        .map(|slug| place.dir.join(format!("{slug}.md")))
+        .find(|rel| !root.join(rel).exists())
+    else {
+        let tried: Vec<_> = candidates.iter().map(|s| format!("{s}.md")).collect();
         bail!(
             "{} はすでに別の原本の取り込みに使われています。--slug で別の名前を指定してください",
-            rel.display()
+            tried.join("・")
         );
-    }
+    };
+    let abs = root.join(&rel);
     let text = doc.render();
     fs::create_dir_all(abs.parent().expect("kb 配下のパス"))?;
     kb::atomic::create_new(&abs, &text)?;
     kb::done(root, "取り込みました", &rel, &text)?;
     existing.insert(input.source, rel.clone());
     Ok(Some(rel))
+}
+
+/// ファイル名（拡張子なし）の候補を、使う順に並べる。
+/// - `--slug` があればそれだけ
+/// - ファイルなら原本のファイル名。重なったときのために「ディレクトリ名-ファイル名」も足す
+///   （`docs/<機能>/requirements.md` のように同じ名前が並ぶため）。ファイル名が英字にならなければタイトル
+/// - 標準入力ならタイトル
+fn slug_candidates(explicit: Option<&str>, title: &str, input: &Input) -> Vec<String> {
+    let mut candidates = match (explicit, &input.stem) {
+        (Some(slug), _) => vec![new::slugify(slug)],
+        (None, Some(stem)) => {
+            let mut list = vec![new::slugify(stem)];
+            if let Some(parent) = &input.parent {
+                list.push(new::slugify(&format!("{parent}-{stem}")));
+            }
+            list.push(new::slugify(title));
+            list
+        }
+        (None, None) => vec![new::slugify(title)],
+    };
+    candidates.retain(|s| !s.is_empty());
+    candidates.dedup();
+    candidates
 }
 
 struct Doc {
@@ -402,6 +430,35 @@ mod tests {
         let old = "> 原本: x（2026-10-01）\n\na\nb\nc\n";
         let new = "> 原本: x（2026-10-21）\n\na\nc\nd\ne\n";
         assert_eq!(diff_stats(old, new), (2, 1));
+    }
+
+    #[test]
+    fn slugs_prefer_the_file_name_then_the_directory() {
+        let input = |stem: Option<&str>, parent: Option<&str>| Input {
+            bytes: Vec::new(),
+            format: Format::Md,
+            source: String::new(),
+            stem: stem.map(String::from),
+            parent: parent.map(String::from),
+        };
+        let file = input(Some("requirements"), Some("20260930-web-push"));
+        assert_eq!(
+            slug_candidates(None, "Web Push 通知 — 要件定義", &file),
+            ["requirements", "20260930-web-push-requirements", "web-push"]
+        );
+        assert_eq!(
+            slug_candidates(Some("Push Spec"), "x", &file),
+            ["push-spec"]
+        );
+        assert_eq!(
+            slug_candidates(None, "Pricing Report", &input(Some("料金"), Some("資料"))),
+            ["pricing-report"]
+        );
+        assert_eq!(
+            slug_candidates(None, "Notion Page", &input(None, None)),
+            ["notion-page"]
+        );
+        assert!(slug_candidates(None, "料金", &input(None, None)).is_empty());
     }
 
     #[test]

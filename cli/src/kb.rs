@@ -50,9 +50,11 @@ pub enum Command {
     /// 文字列を置き換える。--old はファイル内で1か所だけに一致する必要がある
     Edit {
         path: String,
-        #[arg(long)]
+        /// 置き換える文字列（`- 項目` のように `-` で始まってもよい）
+        #[arg(long, allow_hyphen_values = true)]
         old: String,
-        #[arg(long)]
+        /// 置き換え後の文字列（`-` で始まってもよい）
+        #[arg(long, allow_hyphen_values = true)]
         new: String,
         /// 複数あっても全部置き換える
         #[arg(long)]
