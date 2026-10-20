@@ -1059,7 +1059,8 @@ impl Fixture {
             .spawn()
             .unwrap();
         let mut first = String::new();
-        BufReader::new(child.stdout.take().unwrap())
+        // stdout は Child に持たせたままにする。閉じると、サーバーが続きの行を出すときに SIGPIPE で死ぬ
+        BufReader::new(child.stdout.as_mut().unwrap())
             .read_line(&mut first)
             .unwrap();
         let port = first
