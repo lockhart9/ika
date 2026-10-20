@@ -15,6 +15,7 @@ use crate::root::expand_tilde;
 use crate::vcs;
 
 pub mod atomic;
+pub mod cat;
 pub mod grep;
 pub mod orphans;
 pub mod search;
@@ -34,8 +35,8 @@ pub enum Command {
     /// どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートを、プロダクトごとに数える
     /// （蒸留の候補。3 件以上たまったプロダクトに「要整理」を付ける）
     Orphans(orphans::Args),
-    /// ファイルの中身を表示する
-    Cat { path: String },
+    /// ファイルの中身を表示する。--outline・--section・--lines・--frontmatter で一部だけ読める
+    Cat(cat::Args),
     /// 標準入力の内容でファイルを作る（フロントマターを含む全文）
     Write {
         /// kb/ から始まるパス（例: kb/tech/notes/2026/2026-10-18-foo.md）
@@ -89,11 +90,7 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
         Command::Search(args) => search::run(root, args)?,
         Command::Grep(args) => grep::run(root, args)?,
         Command::Orphans(args) => orphans::run(root, args)?,
-        Command::Cat { path } => {
-            let rel = resolve(root, &path)?;
-            guard_symlink(root, &rel)?;
-            print!("{}", read(root, &rel)?);
-        }
+        Command::Cat(args) => cat::run(root, args)?,
         Command::Write { path, overwrite } => {
             let rel = resolve(root, &path)?;
             guard_symlink(root, &rel)?;

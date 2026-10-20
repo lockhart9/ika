@@ -1,6 +1,6 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "ika",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "個人ナレッジハーネス ika のスキル集。ビジネス・ドメイン知識と技術の知見を記録・検索し、意思決定を記録する。開発中のプロダクトの概要を登録・更新する"
 }

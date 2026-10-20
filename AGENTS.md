@@ -101,7 +101,7 @@ ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
 ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須
 ika kb ls [kb/tech]             # kb/ 配下の Markdown を一覧（パスは IKA_HOME 下の kb/ から。kb/ の外は操作できない）
-ika kb cat kb/tech/notes/2026/2026-10-14-foo.md
+ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ
 ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では新しい日付が先
 ika kb grep -n -C2 'review|レビュー' kb/tech   # ripgrep で検索する（正規表現・文脈行・-g・--json など。要 rg）。パスは IKA_HOME からの相対で kb/ の中だけ（省略すると kb/ 全体）。rg のオプションは許可リストにあるものだけ通し、--pre・-z・-f・-L など外部コマンドを動かす・kb/ の外を読むものは拒否する
 ika kb orphans [-p <name>] [--min 3]   # どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートをプロダクト別に数える（蒸留の候補）

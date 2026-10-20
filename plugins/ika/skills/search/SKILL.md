@@ -19,7 +19,10 @@ KB にアクセスできない環境では、プロジェクトに上げられ�
    ika kb search 'review' 'レビュー' -p <name>             # すべて含むファイル。一致した行も出る
    ika kb search -t <tag> -d business -l           # タグで絞る（検索語なしでもよい）
    ika kb search --type decision --status accepted -l   # 有効な決定
-   ika kb cat kb/tech/decisions/<file>.md            # 読む
+   ika kb cat kb/tech/decisions/<file>.md            # 全文を読む
+   ika kb cat <path> --outline                       # 長いファイルは先に見出し一覧（各節の行範囲・文字数つき）を見る
+   ika kb cat <path> --section "技術"                # 必要な節だけ読む（同名の見出しがあれば "## 技術" と階層を付ける）
+   ika kb cat <path> --lines 40:80                   # grep -n で見つけた行の周辺だけ読む（--frontmatter でフロントマターのみ）
    ika kb grep -n -C2 'review|レビュー' kb/tech           # 正規表現・前後の行など自由に探す。中身は ripgrep（オプションは許可されたものだけ）
    ```
    `ika kb search` で足りない探し方（正規表現、前後の行、単語境界など）は `ika kb grep` を使う。検索範囲は kb/ の中に限られる。結果は信頼度順にならないので、当たったファイルの `type`・`status` は自分で確かめる
