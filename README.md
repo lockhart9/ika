@@ -1,138 +1,225 @@
 # ika
 
-開発中のサービス・日々の情報収集・ビジネス知見を蓄積し、意思決定に使うための個人用AIハーネス。
-ナレッジとスキルはテキストファイルで持ち、Claude Code / Codex / Claude Desktop / ChatGPT から同じものを使う。
+**調べたこと・決めたことを、AI と一緒に溜めて使うための、個人用ナレッジハーネス。**
 
-AIへの指示の正本は [`AGENTS.md`](AGENTS.md)、ナレッジの書式は [`docs/kb-format.md`](docs/kb-format.md)。
+調査メモ、ビジネスの知見、技術の判断、意思決定の記録を、ただのテキストファイル（Markdown と CSV）で溜めます。
+それを Claude Code / Codex / Claude Desktop / ChatGPT のどれからでも、同じ手順で読み書きできます。
 
-## 構成
+こんなことができます。
 
-このリポジトリはツールとスキルだけを持つ。ナレッジのデータ（KB）は変わり続けるので、リポジトリにはコミットせず `IKA_HOME` で指定したディレクトリに溜める。
+- 「前に調べた〜って何だっけ？」に、**根拠にしたファイルのパス付き**で答えてもらう
+- 「〜を決めたい」と言うと、**過去のメモを踏まえて**選択肢を整理し、決定を理由つきで記録する
+- 開発中のサービスや副業の検討を「プロダクト」として登録し、概要と関連ノートをまとめて見る
+- 価格の履歴のような表形式のデータを、SQL で集計する
+- 溜めたナレッジを、ブラウザでそのまま読む
 
+## しくみ
+
+このリポジトリは**道具（CLI とスキル）だけ**を持ちます。ナレッジ本体は、あなたの手元の `IKA_HOME` ディレクトリに溜めます。自分の調査メモをリポジトリに混ぜずに済み、書き込みのたびに手元の git で自動コミットされるので、履歴も残ります。
+
+```mermaid
+flowchart LR
+  subgraph clients["AI クライアント"]
+    A1["Claude Code"]
+    A2["Codex"]
+    A3["Claude Desktop"]
+    A4["ChatGPT"]
+  end
+  subgraph tool["このリポジトリ"]
+    S["スキル　capture　search　decide など"]
+    C["ika CLI"]
+  end
+  subgraph data["IKA_HOME　あなたの手元だけ"]
+    K["kb　ノート　知見　決定　プロダクト概要"]
+    D["data　登録簿　表形式データ"]
+  end
+  clients --> S
+  S --> C
+  C --> K
+  C --> D
 ```
-このリポジトリ（Git・ツールとスキル）
-  AGENTS.md          全クライアント共通の指示（CLAUDE.md はこれを読み込むだけ）
-  docs/              KB・登録簿の書式の正本
-  templates/         ノートのひな形（ika のビルド時にバイナリへ埋め込む）
-  plugins/ika/       ika プラグイン（Claude・OpenAI 共通）
-    .claude-plugin/plugin.json   Claude 用マニフェスト
-    plugin.json                  OpenAI 用マニフェスト
-    skills/<name>/               スキル。references/・assets/ は ika sync が正本からコピー
-  .claude-plugin/marketplace.json  Claude 用プラグイン置き場の定義（ローカル用）
-  .agents/plugins/marketplace.json Codex・ChatGPT 用プラグイン置き場の定義（ローカル用）
-  cli/               ika CLI（Rust 2024 edition）
 
-IKA_HOME（手元だけの git で履歴を残す。リモートなし）
-  kb/
-    business/        ビジネス・ドメイン知識（notes/YYYY・insights・decisions）
-    tech/            技術（同じ構成）
-    projects/<name>/ プロダクトごとの概要（両面）
-  data/projects.csv  プロダクト登録簿（一覧の正本）
-  data/domains.csv   領域登録簿（kb/ 直下の領域の正本）
-  data/datasets.sqlite3  表形式データ（価格の履歴など。`ika data` で読み書き）
-```
+AI は `kb/` や `data/` のファイルを直接いじらず、必ず `ika` コマンドを通します。書式の検証、リンク切れの検出、自動コミットを CLI が一手に引き受けるためです。
 
-## セットアップ
+### 溜めるもの
+
+| 種類 | 置き場所 | 性質 |
+|---|---|---|
+| ノート | `kb/<領域>/notes/YYYY/` | 日付つきの生ログ。書いたら原則そのまま |
+| 知見 | `kb/<領域>/insights/` | 複数のノートから蒸留したもの。育てて更新する |
+| 決定 | `kb/<領域>/decisions/` | 背景・選択肢・決定・理由の記録 |
+| プロダクト | `kb/projects/<name>/README.md` | サービスや副業ごとの概要 |
+| 表データ | `data/datasets.sqlite3` | 件数が増えていく数値や記録。`ika data` で扱う |
+
+領域は最初から `business`（ビジネス・ドメイン知識）と `tech`（技術）に分けてあります。書式の詳細は [`docs/kb-format.md`](docs/kb-format.md) と [`docs/data-format.md`](docs/data-format.md) です。
+
+## はじめる
+
+必要なもの: [Rust](https://rustup.rs/)（1.99 以上）、git、[ripgrep](https://github.com/BurntSushi/ripgrep)（`ika kb grep` で使う）
 
 ```bash
-cargo install --path cli     # ika コマンドを入れる
-export IKA_HOME=<KB を置くディレクトリ>       # KB の場所。シェルの設定に足す。未設定だと ika の KB 系コマンドは動かない
-ika init                     # KB を作る（手元だけの git リポジトリ。以後、書き込みごとに自動コミット）
-ika check                    # KB を検証
+# 1. このリポジトリを取得して ika コマンドを入れる
+git clone https://github.com/lockhart9/ika.git
+cd ika
+cargo install --path cli
+
+# 2. ナレッジを置く場所を決めて、シェルの設定（.zshrc など）に足す
+export IKA_HOME=~/my-knowledge
+
+# 3. ナレッジベースを作る（手元だけの git リポジトリになる）
+ika init
+ika check
 ```
 
-旧構成（KB をこのリポジトリの `kb/`・`data/` に置いていた）からの移行は `ika init --import <旧リポジトリ>`。
+`IKA_HOME` が未設定だと、`ika` の KB 系コマンドは動きません（既定の場所はありません）。
 
-スキルは ika プラグインとして入れる。どのリポジトリで作業していても使える:
+旧構成（KB をこのリポジトリの `kb/`・`data/` に置いていた）から移すときは、`ika init --import <旧リポジトリ>` を使います。
+
+### スキルを AI に入れる
+
+スキルは、AI に「どう記録して、どう探すか」を教える手順書です。ika プラグインとして入れると、どのリポジトリで作業していても使えます。リポジトリの中で実行してください。
 
 ```bash
-ika install --dry-run        # 実行するコマンドを確認
-ika install                  # claude plugin marketplace add <このリポジトリ> → claude plugin install ika@ika、
-                             # codex があれば codex plugin marketplace add <このリポジトリ>
+ika install --dry-run   # 何を実行するか確認
+ika install             # Claude Code と Codex に登録して入れる
 ```
 
-`ika install` などリポジトリを扱うコマンドは、リポジトリの中で実行する。
+`ika install` は、このディレクトリのパスを各クライアントの設定に登録するだけです。外部への公開や送信はしません。
 
-`ika install` は、このディレクトリのパスを各クライアントの設定に登録するだけで、外部へ公開・送信はしない（Claude・Codex は、プラグインを探す一覧を「マーケットプレイス」と呼ぶ。ここではローカルのディレクトリ）。
-### スキルを直したとき
+## 使ってみる
 
-Claude Code・Codex・ChatGPT デスクトップは、インストール時にプラグインを**キャッシュへコピー**して使う（Claude Code は `~/.claude/plugins/cache/`）。リポジトリを直しても、コピーは自動では変わらず、**`version` が同じだと更新もされない**。直したら次を実行する:
+スキルは `ika:<名前>` で呼びます（Claude Code なら `/ika:capture` など）。普通に話しかけても、依頼の内容から自動で選ばれます。
+
+| スキル | こう頼む | 何をするか |
+|---|---|---|
+| `capture` | 「この記事をまとめて KB に残して」 | 情報や知見を、書式を守って記録する |
+| `search` | 「前に調べた〜は？」「〜について何を決めたっけ」 | KB を検索し、根拠のパスを添えて答える。無ければ「KB に記録なし」と言う |
+| `decide` | 「〜を決めたい」「判断材料を整理して」 | 過去の経緯を踏まえて論点を整理し、決定を記録する |
+| `project-add` | 「新しいサービスを始めたので登録して」 | プロダクトを登録し、概要の README を作る |
+| `project-sync` | 「〜の現状を KB に反映して」 | リポジトリを読んで、プロダクト概要を最新にする |
+
+CLI を直接使う場合のよく使うコマンドです。全コマンドは `ika --help` で見られます。
 
 ```bash
-ika install --bump patch     # 2つのマニフェストの version を上げ、Claude Code のプラグインを更新する
-                             # （入っていなければ install、入っていれば plugin update）
+ika new note "タイトル" --domain tech --project <name> --tags a,b --stdin   # ノートを作る（本文は標準入力）
+ika kb search キーワード --any -d tech        # 検索（信頼度順。採用済みの決定が先に出る）
+ika kb orphans                                # どこからもリンクされていないノート（蒸留の候補）
+ika project add <name> --summary "一行説明"   # プロダクトを登録
+ika data sql "select ..."                     # 表形式データを集計
+ika check                                     # KB を検証
 ```
 
-更新の反映には Claude Code の再起動が必要。`ika install` は最後に、インストール済みのコピーがリポジトリと同じ内容になったかを確かめ、古いままなら失敗で終わる。
-`ika check` は、`plugins/ika` の中身が変わっているのに `version` が最後に上げたときのままなら、エラーにする（未コミットの編集と新規ファイルも見る）。インストール済みのコピーが古いときは、一言添える。
-Codex・ChatGPT デスクトップは、`ika install` が marketplace を登録するだけなので、`version` を上げたあとに Plugins 画面で再読み込みする。
+ノートが溜まったら `ika kb orphans` で未整理のものを確認し、複数のノートから言えることを知見（insight）に書き直すのが基本の流れです。
+
+### ブラウザで読む
+
+```bash
+ika serve --open   # http://127.0.0.1:8787/ を開く
+```
+
+KB を Markdown のままブラウザで読めます。トップ、領域ごとの一覧、プロダクトのページ、検索があり、ノート同士のリンクも辿れます。読み取り専用で、手元の `127.0.0.1` だけで待ち受けます。ファイルは毎回読み直すので、`ika` で書いたあとは再読み込みで見えます。
+
+<details>
+<summary>セキュリティ上の挙動（クリックで開く）</summary>
+
+- GET と HEAD しか受け付けません
+- Host が `localhost`・`127.0.0.1` 以外のリクエストは断ります（DNS リバインディング対策）
+- KB の外やシンボリックリンク経由は読めません。返すのは Markdown と画像（png・jpg・gif・webp）だけです
+- ノートに書かれた生の HTML は実行せず、文字として表示します。`javascript:` のリンクは無効にします
+
+</details>
 
 ## クライアントごとの使い方
 
+どのクライアントでも、ナレッジの正本は `IKA_HOME` です。違うのは、指示とスキルの渡し方と、`ika` を呼べるかどうかです。
+
 | クライアント | 指示 | スキル | ナレッジの読み書き |
 |---|---|---|---|
-| Claude Code | `CLAUDE.md`（`@AGENTS.md` を読み込む） | `ika install` で ika プラグインを入れる | `ika` CLI（`Bash(ika:*)` を許可） |
-| Codex | `AGENTS.md` | `ika install` でマーケットプレイスを登録し、ika プラグインを有効にする | `ika` CLI |
-| ChatGPT デスクトップ | このリポジトリをローカルプロジェクトの primary フォルダにすると `AGENTS.md` を読む | Plugins 画面で ika を有効にする（`.agents/plugins/marketplace.json` から見つかる） | `ika` CLI |
-| Claude Desktop | プロジェクトの指示に `AGENTS.md` を貼る | `ika install` で ika プラグインを入れる（Code タブ）。チャットだけなら `ika export claude` の zip を **Customize > Plugins > Add > Upload plugin** で上げる（Claude Code にも同期されるので、`ika install` と両方入れると重複する） | Code タブは `ika` CLI。チャットはファイルシステム MCP サーバー（`@modelcontextprotocol/server-filesystem`）で `IKA_HOME` のディレクトリだけを許可する（`ika` CLI は呼べないので、自動コミットや検証は効かない。次に `ika` で書いたときのコミットに入る） |
-| claude.ai（ブラウザ） | `ika export claude --with-kb` の `instructions.md` をプロジェクトの指示に | `ika export claude` の zip を上記の Upload plugin で上げる | **既定では KB に触れない**（ローカルのファイルにも CLI にも届かない）。`ika export claude --with-kb` で `knowledge-*.md` と CSV を作り、プロジェクトの知識に上げれば**読み取り専用**で参照できる。書き出した時点のスナップショットで、KB の内容がクラウドに上がる。記録は出力された本文を手で保存 |
-| ChatGPT web | `ika export chatgpt` の `instructions.md` をプロジェクトの指示に | `skills.md` をプロジェクトファイルに | `knowledge-*.md` と CSV をプロジェクトファイルに上げる。領域ごとに分かれているので、技術だけ・ビジネスだけのプロジェクトも作れる（読み取り専用。記録は出力された本文を手で保存） |
+| Claude Code | `CLAUDE.md`（`@AGENTS.md` を読み込む） | `ika install` | `ika` CLI（`Bash(ika:*)` を許可すると確認が出ない） |
+| Codex | `AGENTS.md` | `ika install` でマーケットプレイスを登録し、プラグインを有効にする | `ika` CLI |
+| ChatGPT デスクトップ | このリポジトリをローカルプロジェクトの primary フォルダにする | Plugins 画面で ika を有効にする | `ika` CLI |
+| Claude Desktop | プロジェクトの指示に `AGENTS.md` を貼る | `ika install`（Code タブ）。チャットだけなら下の zip | Code タブは `ika` CLI。チャットはファイルシステム MCP サーバーで `IKA_HOME` だけを許可する（自動コミットや検証は効かない） |
+| claude.ai（ブラウザ） | `ika export claude --with-kb` の `instructions.md` | `ika export claude` の zip を Upload plugin で上げる | 既定では触れない。スナップショットを上げれば読み取り専用で参照できる |
+| ChatGPT web | `ika export chatgpt` の `instructions.md` | `skills.md` をプロジェクトファイルに | `knowledge-*.md` と CSV を上げる（読み取り専用） |
 
-`dist/` は書き出し専用で Git 管理外。KB を更新したら書き出し直す（KB は `IKA_HOME` から読む）。
+<details>
+<summary>クラウドのクライアントに KB を渡すとき（ika export）</summary>
 
-KB を書き出すとき（`ika export chatgpt`、`ika export claude --with-kb`）は、クラウドに上がる範囲を絞れる。
+`ika export` は `dist/` に書き出します（Git 管理外）。**KB の内容がクラウドに上がる**ので、範囲を絞れます。
 
 ```bash
 ika export claude --with-kb --domain tech --no-projects   # 技術の領域だけ。プロダクト概要と projects.csv は含めない
+ika export chatgpt --domain business                      # ビジネスの領域だけ
 ```
 
-`--domain` は複数指定できる。書き出すたびに前回の `knowledge-*.md` と CSV は消えるので、範囲を絞り直しても古い内容は残らない。`--with-kb` を付けない `ika export claude` は、プラグインの zip だけを作る（KB は含まない）。
+- `--domain` は複数指定できます
+- 書き出すたびに前回の `knowledge-*.md` と CSV は消えるので、範囲を絞り直しても古い内容は残りません
+- `--with-kb` なしの `ika export claude` は、プラグインの zip だけを作ります（KB は含みません）
+- 書き出した時点のスナップショットなので、KB を更新したら書き出し直してください
 
-## ブラウザで読む
+</details>
 
-```bash
-ika serve --open             # http://127.0.0.1:8787/ を開く（--port で変更。0 なら空きポート）
-```
+## プロダクトと領域を増やす
 
-`ika serve` は、KB を Markdown のままブラウザで読むための読み取り専用のサーバー。
-
-- トップ（プロダクト・領域・最近の更新）、領域・年ごとのディレクトリ一覧、ノートの表示（フロントマターはタイトル・種類・日付・プロダクト・タグ・出典として表示し、本文の Markdown を描画）、プロダクトのページ（README と関連するノート・決定・知見）、検索（信頼度順。領域・プロダクト・種類・タグで絞れる）
-- ノート同士の相対リンクはそのまま辿れ、各ページの下に「このページへのリンク」が出る
-- ファイルは毎回読み直すので、`ika` で書いたあとは再読み込みで見える
-- `127.0.0.1` だけで待ち受け、GET・HEAD しか受け付けない。Host が `localhost`・`127.0.0.1` 以外のリクエストは断る（DNS リバインディング対策）。KB の外・シンボリックリンク経由は読めず、返すのは Markdown と画像（png・jpg・gif・webp）だけ。ノートに書かれた生の HTML は実行せずそのまま文字として表示し、`javascript:` のリンクは無効にする
-
-## プロダクトを増やす
+「プロダクト」は、コードのあるサービスに限りません。事業や副業の検討も含みます（その場合 `--path` は省略します）。
 
 ```bash
 ika project add <name> --path <リポジトリのパス> --url https://... --summary "一行説明"
+ika domain add <name> --summary "何を置く領域か"    # business・tech 以外の切り口が必要になったら
 ```
 
-`data/projects.csv` に1行足され、`kb/projects/<name>/README.md` が作られる（どちらも `IKA_HOME` の下）。中身は `ika:project-sync` スキルでリポジトリから埋める。
+`project add` は、登録簿に1行足し、`kb/projects/<name>/README.md` を作ります（どちらも `IKA_HOME` の下）。中身は `project-sync` スキルでリポジトリから埋められます。
 
-## 領域を増やす
+## このリポジトリの構成
 
-ビジネス・ドメイン知識（`business`）と技術（`tech`）は最初から分けてある。別の切り口が必要になったら:
+```
+AGENTS.md          全クライアント共通の指示の正本（CLAUDE.md はこれを読み込むだけ）
+docs/              KB・登録簿の書式の正本
+templates/         ノートのひな形（ビルド時にバイナリへ埋め込む）
+plugins/ika/       ika プラグイン（Claude・OpenAI 共通）
+  skills/<name>/     スキル。references/・assets/ は ika sync が正本からコピー
+cli/               ika CLI（Rust、edition 2024）
+.claude-plugin/    Claude 用プラグイン置き場の定義（ローカル用）
+.agents/plugins/   Codex・ChatGPT 用プラグイン置き場の定義（ローカル用）
+```
+
+## 開発
 
 ```bash
-ika domain add <name> --summary "何を置く領域か"
+cargo build
+cargo test
+cargo clippy --all-targets   # 警告ゼロを保つ
+cargo fmt
+ika check                    # リポジトリ内で実行するとプラグインも検証する
+claude plugin validate .     # プラグインとマーケットプレイスの公式検証
 ```
 
-## スキル
+- `main` への直接 push はできません。変更は PR で出し、CI（fmt・clippy・test）が通って、オーナーのレビューを経てマージします
+- `docs/kb-format.md` や `templates/` を直したら `ika sync` でスキル側のコピーを更新します。`templates/` はバイナリにも埋め込まれるので `cargo install --path cli` もやり直します
+- Rust のモジュールは `mod.rs` を使わず、`foo.rs`（子モジュールがあれば `foo/`）で書きます
 
-呼び出し名はプラグイン名付きの `ika:<name>`（Claude Code では `/ika:capture` など）。
+### スキルを直したとき
 
-| スキル | 用途 |
-|---|---|
-| `capture` | 情報・知見を記録する |
-| `search` | KB を検索して根拠付きで答える |
-| `decide` | 過去の経緯を踏まえて論点を整理し、決定を記録する |
-| `project-add` | プロダクトを登録する |
-| `project-sync` | リポジトリを読んでプロダクト概要を更新する |
+Claude Code・Codex・ChatGPT デスクトップは、インストール時にプラグインを**キャッシュへコピー**して使います。リポジトリを直しても自動では反映されず、**`version` が同じだと更新もされません**。直したら次を実行します。
 
-`docs/kb-format.md` や `templates/` を直したら `ika sync` でスキル側のコピーを更新する（`templates/` はバイナリにも埋め込まれるので `cargo install --path cli` も）（`ika check` が差分を検出する）。
+```bash
+ika install --bump patch   # 2つのマニフェストの version を上げて、Claude Code のプラグインを更新する
+```
+
+- 反映には Claude Code の再起動が必要です
+- `ika check` は、`plugins/ika` の中身が変わっているのに `version` が上がっていなければエラーにします
+- Codex・ChatGPT デスクトップは、`version` を上げたあとに Plugins 画面で再読み込みします
 
 ## 今後の候補
 
 - `ika search`: KB が増えて `rg` で足りなくなったら、SQLite（FTS5）の検索インデックスを作る。正本はテキストのまま、インデックスは再生成できるものにする
 - `ika mcp`: KB の検索・記録を MCP サーバー（stdio）として出し、Claude Desktop と Codex から同じツールで使う
 - 指標データ（`data/metrics/*.csv` など）とプロダクト横断のレポート
+
+## セキュリティ
+
+脆弱性の報告方法は [`SECURITY.md`](SECURITY.md) にあります。
+
+## ライセンス
+
+[MIT](LICENSE)
