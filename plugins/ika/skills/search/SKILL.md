@@ -1,0 +1,34 @@
+---
+name: search
+description: ika のナレッジベース（プロダクト概要、ビジネス・ドメイン知識と技術の調査メモ・知見・意思決定ログ）を検索して答える。「前に調べた〜は？」「〜について何を決めたっけ」「KBにある？」「過去の知見を踏まえて」のような質問や、意思決定の前に過去の経緯を確認したいときに使う。
+compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
+---
+
+# search: ナレッジを検索して答える
+
+KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。構成と書式は [references/kb-format.md](references/kb-format.md)。
+KB にアクセスできない環境では、プロジェクトに上げられたナレッジファイル（`knowledge-*.md`。各ノートの先頭に `<!-- path: ... -->` がある）を同じ手順で探す。
+
+## 手順
+
+1. 対象プロダクトが話題にあれば `ika project list` で `name` を確かめ、`ika project show <name> --readme` で概要（README）と関連する決定・知見・ノートの一覧を一度に見る
+2. 領域を絞る。ビジネス・ドメインの問いなら `-d business`、技術の問いなら `-d tech`（一覧は `ika domain list`）。当たらなければ領域を外して全体に広げる
+3. `ika kb search` で絞り込む。検索語は部分一致・大文字小文字無視で、日本語は表記ゆれ（カタカナ／英語、略称）を `--any` で並べる
+   ```bash
+   ika kb search 'review' 'レビュー' --any -d tech -l      # どれかを含むファイル。-l でファイル名のみ
+   ika kb search 'review' 'レビュー' -p <name>             # すべて含むファイル。一致した行も出る
+   ika kb search -t <tag> -d business -l           # タグで絞る（検索語なしでもよい）
+   ika kb search --type decision --status accepted -l   # 有効な決定
+   ika kb cat kb/tech/decisions/<file>.md            # 読む
+   ika kb grep -n -C2 'review|レビュー' kb/tech           # 正規表現・前後の行など自由に探す。中身は ripgrep（オプションは許可されたものだけ）
+   ```
+   `ika kb search` で足りない探し方（正規表現、前後の行、単語境界など）は `ika kb grep` を使う。検索範囲は kb/ の中に限られる。結果は信頼度順にならないので、当たったファイルの `type`・`status` は自分で確かめる
+   CLI が使えない環境でだけ、`IKA_HOME` 下の `kb/` を `rg` で直接探す
+4. 数値や推移を問われたら、表形式データも見る。`ika data ls` で一覧し、`ika data show <name>` で列を確かめ、`ika data sql "select ..."` で集計する（SELECT のみ。テーブル名はデータセット名）。ノートや知見がデータセットを引用していることもある
+5. 検索結果は信頼度順に並ぶ（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定。同じ種類では新しい日付が先）。上から読み、ノートは一次情報・未検証のメモとして扱う。`superseded` は経緯としてだけ使う
+6. 答える
+   - 根拠にしたファイルのパス（データなら、データセット名と実行した SQL）を必ず添える
+   - KB に無いことは「KBに記録なし」と明言し、一般知識で補うならそうと分かるように書く
+   - 記録同士が矛盾していたら、両方示して指摘する
+   - ビジネスと技術の両方に根拠があるときは、どちらの領域の話かを分けて示す
+7. 調べた結果、新しく分かったことがあれば `capture` スキルでの記録を提案する

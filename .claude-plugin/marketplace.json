@@ -1,0 +1,12 @@
+{
+  "name": "ika",
+  "description": "個人ナレッジハーネス ika",
+  "owner": { "name": "ika" },
+  "plugins": [
+    {
+      "name": "ika",
+      "source": "./plugins/ika",
+      "description": "ナレッジの記録・検索・意思決定ログ・プロダクト登録"
+    }
+  ]
+}

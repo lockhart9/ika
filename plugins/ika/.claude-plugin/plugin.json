@@ -1,0 +1,14 @@
+{
+  "name": "ika",
+  "displayName": "ika",
+  "version": "0.3.7",
+  "description": "個人ナレッジハーネス ika のスキル集。ビジネス・ドメイン知識と技術の知見を記録・検索し、意思決定を記録する。開発中のプロダクトの概要を登録・更新する",
+  "author": {
+    "name": "ika"
+  },
+  "keywords": [
+    "knowledge-base",
+    "decision-log",
+    "personal"
+  ]
+}

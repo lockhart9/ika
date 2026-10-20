@@ -1,0 +1,27 @@
+[package]
+name = "ika"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "個人ナレッジハーネス ika の CLI"
+
+[[bin]]
+name = "ika"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive"] }
+csv = "1.4.0"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
+[dev-dependencies]
+rusqlite = { version = "0.40.2", features = ["bundled"] }
