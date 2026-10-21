@@ -18,7 +18,7 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
 2. 種類を決める（何を書くかで決まる）
    - 起きたこと・調べたこと（その時点のログ）→ `note`
    - **今の状態**（設計・仕様・スキーマ・ドメインモデルなど、変わると古くなるもの）→ note にしない。`kb/projects/<name>/README.md` を更新するか、その下に資料を作る（`ika kb write kb/projects/<name>/<topic>.md`。type は `note` でよい。日付は最終更新日にして、更新して育てる）
-   - 複数の事実から言える一般化された知見 → `insight`。先に `ika kb fts <主題> --type insight -p <name> -l`（主題の語で当たらなければ語を外して全件）で既存を探し、あれば更新する。書き方は [references/distill.md](references/distill.md)（ノートのコピーではなく、書き直して一文に絞る）
+   - 複数の事実から言える一般化された知見 → `insight`。先に `ika kb search --type insight -p <name> -l` で既存を探し、あれば更新する。書き方は [references/distill.md](references/distill.md)（ノートのコピーではなく、書き直して一文に絞る）
    - 何かを決めた・決めたい → `decide` スキルに任せる
    - **同じ形の行が増え続け、集計して使う観測**（価格の履歴・計測値・ログなど）→ ノートに書かずデータセットに溜める（`ika data`）。手順は [references/data.md](references/data.md)。そこから言えることを note / insight に書き、データセット名を本文で引用する
 3. 関連プロダクトを `ika project list` の `name` から選ぶ。該当がなければ `projects: []`。未登録の新プロダクトなら `project-add` スキルを先に使う
