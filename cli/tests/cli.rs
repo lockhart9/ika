@@ -1194,7 +1194,9 @@ fn serve_shows_the_index_and_renders_markdown_pages() {
     assert!(page.body.contains("<h1>n</h1>"), "{}", page.body);
     assert!(page.body.contains("<h2>要点</h2>") && page.body.contains("<li>箇条書き</li>"));
     assert!(page.body.contains("<table>"));
-    assert!(page.body.contains("href=\"/project/foo\"") && page.body.contains("/search?tag=auth"));
+    assert!(
+        page.body.contains("href=\"/project/foo\"") && page.body.contains("href=\"/tags/auth\"")
+    );
     assert!(
         !page.body.contains("title: n"),
         "フロントマターは本文に出さない"
@@ -1202,6 +1204,54 @@ fn serve_shows_the_index_and_renders_markdown_pages() {
     assert!(
         page.body.contains("このページへのリンク") && page.body.contains("/kb/tech/insights/i.md")
     );
+}
+
+#[test]
+fn serve_lists_tags_and_shows_pages_by_tag() {
+    let f = Fixture::new("serve-tags");
+    f.write("kb/tech/notes/2026/2026-10-14-a.md", NOTE);
+    f.write(
+        "kb/tech/insights/i.md",
+        &NOTE
+            .replace("type: note", "type: insight")
+            .replace("tags: [auth]", "tags: [auth, 日本 語]"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-15-b.md",
+        &NOTE.replace("tags: [auth]", "tags: [other]"),
+    );
+    let server = f.serve();
+
+    let index = get(&server, "/tags");
+    assert_eq!(index.status, 200);
+    assert!(
+        index.body.contains("href=\"/tags/auth\"") && index.body.contains("href=\"/tags/other\""),
+        "{}",
+        index.body
+    );
+    assert!(get(&server, "/").body.contains("href=\"/tags/auth\""));
+
+    let page = get(&server, "/tags/auth");
+    assert_eq!(page.status, 200);
+    assert!(page.body.contains("2 件"), "{}", page.body);
+    assert!(
+        page.body.contains("/kb/tech/notes/2026/2026-10-14-a.md")
+            && page.body.contains("/kb/tech/insights/i.md")
+            && !page.body.contains("2026-10-15-b.md"),
+        "{}",
+        page.body
+    );
+    // 知見はノートより先、一緒に付いているタグも出す
+    assert!(page.body.find("知見").unwrap() < page.body.find("ノート").unwrap());
+    assert!(
+        page.body
+            .contains("href=\"/tags/%E6%97%A5%E6%9C%AC%20%E8%AA%9E\"")
+    );
+    assert_eq!(
+        get(&server, "/tags/%E6%97%A5%E6%9C%AC%20%E8%AA%9E").status,
+        200
+    );
+    assert_eq!(get(&server, "/tags/none").status, 404);
 }
 
 #[test]

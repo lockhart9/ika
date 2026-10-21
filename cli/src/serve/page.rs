@@ -49,14 +49,20 @@ ul.list .path { display:block; color:var(--muted); font-size:.8rem; word-break:b
 article pre { background:var(--soft); border:1px solid var(--line); border-radius:6px; padding:.8rem; overflow-x:auto; }
 article code { background:var(--soft); padding:.1rem .3rem; border-radius:4px; font-size:.9em; }
 article pre code { background:none; padding:0; }
-article table { border-collapse:collapse; display:block; overflow-x:auto; }
-article th, article td { border:1px solid var(--line); padding:.3rem .7rem; }
+article table { border-collapse:collapse; display:block; overflow-x:auto; width:max-content;
+  max-width:min(calc(50vw + 23rem), calc(100vw - 2.5rem), 84rem); font-size:.9rem; line-height:1.65; }
+article th, article td { border:1px solid var(--line); padding:.3rem .7rem; vertical-align:top; overflow-wrap:break-word; }
+article th { background:var(--soft); text-align:left; white-space:nowrap; }
 .data { overflow-x:auto; width:min(96vw, 90rem); position:relative; left:50%; transform:translateX(-50%); padding:0 .5rem; }
 .data table { border-collapse:collapse; font-size:.85rem; line-height:1.6; }
 .data th, .data td { border:1px solid var(--line); padding:.25rem .6rem; vertical-align:top; overflow-wrap:normal; word-break:normal; }
 .data td { max-width:30rem; }
 .data th { position:sticky; top:0; background:var(--soft); text-align:left; white-space:nowrap; }
 .data tbody tr:nth-child(even) { background:var(--soft); }
+.tags { display:flex; flex-wrap:wrap; gap:.4rem .45rem; list-style:none; padding:0; margin:.6rem 0 1rem; }
+.tags a { display:inline-block; padding:0 .65rem; border:1px solid var(--line); border-radius:1rem; background:var(--soft); font-size:.88rem; line-height:1.9; }
+.tags a:hover { border-color:var(--link); text-decoration:none; }
+.tags .n { color:var(--muted); font-size:.78rem; margin-left:.35rem; }
 article blockquote { margin:1rem 0; padding:0 1rem; color:var(--muted); border-left:4px solid var(--line); }
 article img { max-width:100%; }
 .card { border:1px solid var(--line); border-radius:8px; padding:.6rem 1rem; background:var(--soft); margin:.6rem 0; }
@@ -86,7 +92,7 @@ fn kb_url(rel: &Path) -> String {
     format!("/{}", percent_encode(&parts.join("/")))
 }
 
-fn search_url(key: &str, value: &str) -> String {
+pub(super) fn search_url(key: &str, value: &str) -> String {
     format!("/search?{key}={}", percent_encode(value))
 }
 
@@ -97,7 +103,7 @@ pub(super) fn layout(title: &str, query: &str, body: &str) -> String {
         "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
          <title>{}</title><style>{CSS}</style></head><body>\
-         <header><div class=\"bar\"><a class=\"logo\" href=\"/\">ika</a>\
+         <header><div class=\"bar\"><a class=\"logo\" href=\"/\">ika</a><a href=\"/tags\">タグ</a>\
          <form action=\"/search\" method=\"get\"><input name=\"q\" value=\"{}\" placeholder=\"KB を検索\" size=\"22\">\
          <button>検索</button></form></div></header><main>{body}</main>\
          <link rel=\"stylesheet\" href=\"{FONT_CSS_URL}\"></body></html>",
@@ -130,15 +136,16 @@ fn badge(kind: &str, status: &str) -> String {
 }
 
 /// kb/ 配下の Markdown 1件分の見出し情報
-struct Doc {
-    rel: PathBuf,
-    title: String,
-    kind: String,
-    date: String,
-    status: String,
+pub(super) struct Doc {
+    pub rel: PathBuf,
+    pub title: String,
+    pub kind: String,
+    pub date: String,
+    pub status: String,
+    pub tags: Vec<String>,
 }
 
-fn docs(root: &Path) -> Result<Vec<Doc>> {
+pub(super) fn docs(root: &Path) -> Result<Vec<Doc>> {
     let mut files = Vec::new();
     check::collect_markdown(&root.join("kb"), &mut files)?;
     files.sort();
@@ -158,13 +165,17 @@ fn docs(root: &Path) -> Result<Vec<Doc>> {
             kind: field("type"),
             date: field("date"),
             status: field("status"),
+            tags: fields
+                .get("tags")
+                .and_then(|v| frontmatter::list(v).ok())
+                .unwrap_or_default(),
             rel,
         });
     }
     Ok(docs)
 }
 
-fn doc_item(doc: &Doc) -> String {
+pub(super) fn doc_item(doc: &Doc) -> String {
     format!(
         "<li>{}<a href=\"{}\">{}</a> <span class=\"muted\">{}</span><span class=\"path\">{}</span></li>",
         badge(&doc.kind, &doc.status),
@@ -216,6 +227,7 @@ pub fn index(root: &Path) -> Result<String> {
     }
     body.push_str("</ul>");
     body.push_str(&super::datasets::section(root)?);
+    body.push_str(&super::tags::section(&docs));
     body.push_str("<h2>最近の更新</h2><ul class=\"list\">");
     let mut recent: Vec<_> = docs.iter().collect();
     recent.sort_by(|a, b| {
@@ -516,7 +528,7 @@ pub fn markdown_page(root: &Path, rel: &Path, text: &str) -> Result<String> {
     }
     let tags: Vec<_> = list("tags")
         .iter()
-        .map(|t| format!("<a href=\"{}\">#{}</a>", esc(&search_url("tag", t)), esc(t)))
+        .map(|t| format!("<a href=\"{}\">#{}</a>", super::tags::tag_url(t), esc(t)))
         .collect();
     if !tags.is_empty() {
         meta.push(tags.join(" "));
