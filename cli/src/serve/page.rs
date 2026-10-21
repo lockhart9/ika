@@ -49,8 +49,10 @@ ul.list .path { display:block; color:var(--muted); font-size:.8rem; word-break:b
 article pre { background:var(--soft); border:1px solid var(--line); border-radius:6px; padding:.8rem; overflow-x:auto; }
 article code { background:var(--soft); padding:.1rem .3rem; border-radius:4px; font-size:.9em; }
 article pre code { background:none; padding:0; }
-article table { border-collapse:collapse; display:block; overflow-x:auto; }
-article th, article td { border:1px solid var(--line); padding:.3rem .7rem; }
+article table { border-collapse:collapse; display:block; overflow-x:auto; width:max-content;
+  max-width:min(calc(50vw + 23rem), calc(100vw - 2.5rem), 84rem); font-size:.9rem; line-height:1.65; }
+article th, article td { border:1px solid var(--line); padding:.3rem .7rem; vertical-align:top; overflow-wrap:break-word; }
+article th { background:var(--soft); text-align:left; white-space:nowrap; }
 .data { overflow-x:auto; width:min(96vw, 90rem); position:relative; left:50%; transform:translateX(-50%); padding:0 .5rem; }
 .data table { border-collapse:collapse; font-size:.85rem; line-height:1.6; }
 .data th, .data td { border:1px solid var(--line); padding:.25rem .6rem; vertical-align:top; overflow-wrap:normal; word-break:normal; }
