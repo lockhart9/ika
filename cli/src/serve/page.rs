@@ -7,7 +7,7 @@ use anyhow::Result;
 use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd, TextMergeStream, html};
 
 use super::http::{Request, percent_decode, percent_encode};
-use crate::kb::{self, search};
+use crate::kb::{self, fts, search};
 use crate::registry::{self, Project};
 use crate::{check, frontmatter, project};
 
@@ -614,6 +614,9 @@ pub fn project_page(root: &Path, name: &str) -> Result<Option<String>> {
 
 // ---- 検索 ----
 
+/// 全文検索で1ページに出す件数
+const SEARCH_LIMIT: usize = 50;
+
 fn select(name: &str, label: &str, current: &str, options: &[String]) -> String {
     let mut out = format!(
         "<select name=\"{name}\"><option value=\"\">{}</option>",
@@ -637,6 +640,7 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
         param("tag"),
     );
     let any = req.param("any").is_some();
+    let exact = req.param("exact").is_some();
 
     let domains: Vec<_> = registry::domains(root)?
         .into_iter()
@@ -654,60 +658,108 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
         "<h1>検索</h1><form class=\"search\" action=\"/search\" method=\"get\">\
          <input name=\"q\" value=\"{}\" placeholder=\"検索語（空白区切り）\" size=\"26\">{}{}{}\
          <input name=\"tag\" value=\"{}\" placeholder=\"タグ\" size=\"10\">\
-         <label><input type=\"checkbox\" name=\"any\" value=\"1\"{}> どれか</label><button>検索</button></form>",
+         <label><input type=\"checkbox\" name=\"any\" value=\"1\"{}> どれか</label>\
+         <label><input type=\"checkbox\" name=\"exact\" value=\"1\"{}> 文字列一致</label><button>検索</button></form>",
         esc(&q),
         select("domain", "領域", &domain, &domains),
         select("project", "プロダクト", &project, &projects),
         select("type", "種類", &kind, &kinds),
         esc(&tag),
         if any { " checked" } else { "" },
+        if exact { " checked" } else { "" },
     );
 
     if [&q, &domain, &project, &kind, &tag]
         .iter()
         .all(|v| v.is_empty())
     {
-        body.push_str("<p class=\"muted\">検索語か絞り込みを指定してください。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で並びます。</p>");
+        body.push_str("<p class=\"muted\">検索語か絞り込みを指定してください。日本語の形態素解析つきの全文検索で、文でも引け、関連の強い順に並びます。「文字列一致」にすると、検索語をそのまま含むページを信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）に出します。</p>");
         return Ok(layout("検索", "", &body));
     }
-    let args = search::Args {
-        terms: q.split_whitespace().map(String::from).collect(),
-        domain: Some(domain).filter(|v| !v.is_empty()),
-        project: Some(project).filter(|v| !v.is_empty()),
-        tag: Some(tag).filter(|v| !v.is_empty()),
-        kind: Some(kind).filter(|v| !v.is_empty()),
-        status: None,
-        any,
-        files: false,
-    };
-    let hits = search::find(root, &args)?;
+    let terms: Vec<String> = q.split_whitespace().map(String::from).collect();
+    let domain = Some(domain).filter(|v| !v.is_empty());
+    let project = Some(project).filter(|v| !v.is_empty());
+    let tag = Some(tag).filter(|v| !v.is_empty());
+    let kind = Some(kind).filter(|v| !v.is_empty());
     let titles = docs(root)?;
-    body.push_str(&format!(
-        "<p class=\"muted\">{} 件</p><ul class=\"list\">",
-        hits.len()
-    ));
-    for hit in hits {
+    let item = |label: &str, rel: &Path, date: &str, lines: &[(usize, String)]| {
         let title = titles
             .iter()
-            .find(|d| d.rel == hit.rel)
+            .find(|d| d.rel == rel)
             .map(|d| d.title.clone())
-            .unwrap_or_else(|| hit.rel.to_string_lossy().into());
-        body.push_str(&format!(
+            .unwrap_or_else(|| rel.to_string_lossy().into());
+        let mut out = format!(
             "<li><span class=\"badge\">{}</span><a href=\"{}\">{}</a> <span class=\"muted\">{}</span><span class=\"path\">{}</span>",
-            esc(&hit.label),
-            kb_url(&hit.rel),
+            esc(label),
+            kb_url(rel),
             esc(&title),
-            esc(&hit.date),
-            esc(&hit.rel.to_string_lossy())
-        ));
-        for (n, line) in hit.lines.iter().take(3) {
+            esc(date),
+            esc(&rel.to_string_lossy())
+        );
+        for (n, line) in lines.iter().take(3) {
             let short: String = line.chars().take(200).collect();
-            body.push_str(&format!(
+            out.push_str(&format!(
                 "<div class=\"snippet\">{n}: {}</div>",
                 esc(&short)
             ));
         }
-        body.push_str("</li>");
+        out.push_str("</li>");
+        out
+    };
+
+    if exact {
+        let args = search::Args {
+            terms,
+            domain,
+            project,
+            tag,
+            kind,
+            status: None,
+            any,
+            files: false,
+        };
+        let hits = search::find(root, &args)?;
+        body.push_str(&format!(
+            "<p class=\"muted\">{} 件（文字列一致・信頼度順）</p><ul class=\"list\">",
+            hits.len()
+        ));
+        for hit in hits {
+            body.push_str(&item(&hit.label, &hit.rel, &hit.date, &hit.lines));
+        }
+    } else {
+        let args = fts::Args {
+            terms,
+            domain,
+            project,
+            tag,
+            kind,
+            any,
+            limit: Some(SEARCH_LIMIT),
+            ..fts::Args::default()
+        };
+        let found = fts::find(root, &args)?;
+        let shown = if found.hits.len() < found.total {
+            format!("関連の強い順に上位 {} 件", found.hits.len())
+        } else {
+            "関連の強い順".to_string()
+        };
+        let stale = if found.stale {
+            "。索引を別の ika が更新中のため、更新前の索引で探しました"
+        } else {
+            ""
+        };
+        body.push_str(&format!(
+            "<p class=\"muted\">{} 件（{shown}）{stale}</p><ul class=\"list\">",
+            found.total
+        ));
+        for hit in found.hits {
+            body.push_str(&item(
+                &hit.label,
+                Path::new(&hit.rel),
+                &hit.date,
+                &hit.lines,
+            ));
+        }
     }
     body.push_str("</ul>");
     Ok(layout("検索", &q, &body))

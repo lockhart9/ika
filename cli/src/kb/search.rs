@@ -126,7 +126,7 @@ pub fn has_status(kind: &str) -> bool {
 /// 並び順（小さいほど先）・日付・表示用のラベル。種類ごとの信頼度に応じて重みを付ける:
 /// 採用済みの決定 → 知見 → プロダクト概要・承認済みと実装済みの要件 → 案の決定・下書きの要件 → ノート・取り込んだ資料
 /// → 覆された・却下の決定・取り下げた要件 → その他
-fn weight(text: &str) -> (usize, String, String) {
+pub(crate) fn weight(text: &str) -> (usize, String, String) {
     let fields = frontmatter::parse(text).ok().flatten().unwrap_or_default();
     let field = |key: &str| fields.get(key).map(String::as_str).unwrap_or("");
     let (kind, status) = (field("type"), field("status"));

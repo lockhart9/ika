@@ -16,6 +16,7 @@ use crate::vcs;
 
 pub mod atomic;
 pub mod cat;
+pub mod fts;
 pub mod grep;
 pub mod orphans;
 pub mod search;
@@ -29,6 +30,14 @@ pub enum Command {
     },
     /// 本文とフロントマターで検索する
     Search(search::Args),
+    /// 日本語の形態素解析つきの全文検索。関連度順に並べる（索引は IKA_HOME/.cache/ に作り、自動で更新する）
+    Fts(fts::Args),
+    /// 全文検索（fts）の索引に kb/ の変更を反映する（検索のたびにも自動で反映される）
+    Index {
+        /// 索引を消して一から作り直す
+        #[arg(long)]
+        rebuild: bool,
+    },
     /// 引数をそのまま ripgrep に渡して kb/ を検索する（正規表現・文脈行など rg の機能を使う。要 rg）
     #[command(disable_help_flag = true)]
     Grep(grep::Args),
@@ -90,6 +99,8 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
             }
         }
         Command::Search(args) => search::run(root, args)?,
+        Command::Fts(args) => fts::run(root, args)?,
+        Command::Index { rebuild } => fts::index(root, rebuild)?,
         Command::Grep(args) => grep::run(root, args)?,
         Command::Orphans(args) => orphans::run(root, args)?,
         Command::Cat(args) => cat::run(root, args)?,
