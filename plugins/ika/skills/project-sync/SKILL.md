@@ -22,7 +22,7 @@ KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレク
    - 「現状」に直近の動きを日付付きで1〜3行
    - 「技術」の変化（メジャーバージョン、構成変更）
    - 「課題・次の打ち手」はリポジトリの TODO・docs から拾い、推測なら「推測」と書く。`cycle` スキルが次のテーマに使うので、1行1件で何をなぜやるかが分かるように書く
-   - `ika kb search --type spec --status approved -p <name> -l` で承認済みの要件書を確かめ、実装済みなのに `approved` のままなら `done` にして「実装の記録」を足す
+   - `ika kb fts --type spec --status approved -p <name> -l` で承認済みの要件書を確かめ、実装済みなのに `approved` のままなら `done` にして「実装の記録」を足す
    - フロントマターの `date` を今日にする
 5. URL や一行説明が変わっていたら `ika project set <name> --url ... --summary ...` で `data/projects.csv` を直す（CSV を直接編集しない）
 6. 複数プロダクトに共通する気づきがあれば `capture` スキルで insight を提案する（同じ技術課題・運用の手間 → `tech`、同じ集客・収益の課題 → `business`）

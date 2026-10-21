@@ -106,7 +106,8 @@ CLI を直接使う場合のよく使うコマンドです。全コマンドは 
 
 ```bash
 ika new note "タイトル" --domain tech --project <name> --tags a,b --stdin   # ノートを作る（本文は標準入力）
-ika kb search キーワード --any -d tech        # 検索（信頼度順。採用済みの決定が先に出る）
+ika kb fts 申請を取り下げたい -d tech        # 全文検索（日本語の形態素解析つき。文でも引け、関連度順）
+ika kb search キーワード --any -d tech        # 文字列をそのまま含むかで検索（信頼度順。採用済みの決定が先に出る）
 ika kb orphans                                # どこからもリンクされていないノート（蒸留の候補）
 ika project add <name> --summary "一行説明"   # プロダクトを登録
 ika data sql "select ..."                     # 表形式データを集計

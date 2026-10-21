@@ -278,6 +278,85 @@ fn cat_ls_and_search_work_from_outside() {
     );
 }
 
+#[test]
+fn kb_fts_matches_morphemes_and_substrings_and_keeps_the_index_out_of_git() {
+    let f = Fixture::bare("fts");
+    assert!(f.ika(&["init"]).ok);
+    assert!(f.ika(&["domain", "add", "tech", "--summary", "t"]).ok);
+    let note = |kind: &str, body: &str| {
+        format!(
+            "---\ntitle: n\ntype: {kind}\ndate: 2026-10-14\nprojects: []\ntags: []\n---\n\n{body}\n"
+        )
+    };
+    let a = "kb/tech/decisions/2026-10-14-withdraw.md";
+    let b = "kb/tech/notes/2026/2026-10-14-dynamo.md";
+    let c = "kb/tech/notes/2026/2026-10-15-list.md";
+    for (path, text) in [
+        (a, note("decision", "未処理の申請は本人が取り下げられる。")),
+        (
+            b,
+            note("note", "DynamoDB のオンデマンドモードに切り替える。"),
+        ),
+        (c, note("note", "申請の一覧を表示する。")),
+    ] {
+        let run = f.ika_with(&["kb", "write", path], Some(&text));
+        assert!(run.ok, "{}", run.err);
+    }
+    let fts = |args: &[&str]| {
+        let mut all = vec!["kb", "fts", "-l"];
+        all.extend_from_slice(args);
+        let run = f.ika(&all);
+        assert!(run.ok, "{}", run.err);
+        let mut lines: Vec<String> = run.out.lines().map(String::from).collect();
+        lines.sort();
+        lines
+    };
+
+    // 文で引いても、助詞・活用を除いた形態素で当たる（「申請」だけの c には当たらない）
+    assert_eq!(fts(&["申請を取り下げたい"]), [a]);
+    // 形態素の途中でも、大文字小文字を問わず部分一致で当たる
+    assert_eq!(fts(&["オンデマンド"]), [b]);
+    assert_eq!(fts(&["dynamo"]), [b]);
+    assert_eq!(fts(&["申請", "--type", "note"]), [c]);
+    assert_eq!(fts(&["申請", "dynamodb", "--any"]), [a, b, c]);
+    assert_eq!(fts(&["申請", "dynamodb", "--any", "-n", "1"]).len(), 1);
+    // 検索語なしは一覧なので、件数を絞らない（新しい日付順。同じ日付ならパス順）
+    let listing = f.ika(&["kb", "fts", "--type", "note", "-l"]);
+    assert_eq!(listing.out.lines().collect::<Vec<_>>(), [b, c]);
+    assert!(fts(&["の"]).is_empty(), "助詞1文字では何も引かない");
+
+    // 索引は IKA_HOME/.cache/ に置き、git には入れない
+    assert!(f.exists(".cache/fts/manifest.json"));
+    assert_eq!(f.git(&["status", "--porcelain"]).trim(), "");
+
+    // 書き換え・削除は次の検索で索引に反映される
+    assert!(
+        f.ika(&[
+            "kb",
+            "edit",
+            c,
+            "--old",
+            "一覧を表示",
+            "--new",
+            "取り下げを表示"
+        ])
+        .ok
+    );
+    assert!(f.ika(&["kb", "rm", a]).ok);
+    assert_eq!(fts(&["申請を取り下げたい"]), [c]);
+
+    // 索引の更新と作り直しは単独でもできる
+    let update = f.ika(&["kb", "index"]);
+    assert!(update.ok && update.out.contains("追加 0"), "{}", update.out);
+    let rebuild = f.ika(&["kb", "index", "--rebuild"]);
+    assert!(
+        rebuild.ok && rebuild.out.contains("作り直しました") && rebuild.out.contains("索引 2 件"),
+        "{}",
+        rebuild.out
+    );
+    assert_eq!(fts(&["申請を取り下げたい"]), [c]);
+}
+
 const LONG_NOTE: &str = "---\ntitle: n\ntype: note\ndate: 2026-10-14\nprojects: [foo]\ntags: [auth]\n---\n\n## 要点\n\n要点の本文\n\n## 詳細\n\n詳細の本文\n\n### 補足\n\n補足の本文\n\n## 詳細\n\n二つ目\n";
 
 #[test]
@@ -1361,12 +1440,27 @@ fn serve_shows_projects_and_searches_in_trust_order() {
     assert!(project.body.contains("2026-10-14-a.md"));
     assert_eq!(get(&server, "/project/nope").status, 404);
 
+    // 既定は全文検索（関連度順）。「文字列一致」は従来の検索（信頼度順）
     let found = get(&server, "/search?q=foo");
     assert_eq!(found.status, 200);
-    let decision = found.body.find("2026-10-15-d.md").unwrap();
-    let note = found.body.find("2026-10-14-a.md").unwrap();
-    assert!(decision < note, "採用済みの決定が先");
+    assert!(found.body.contains("関連の強い順"), "{}", found.body);
+    assert!(found.body.contains("2026-10-15-d.md") && found.body.contains("2026-10-14-a.md"));
     assert!(found.body.contains("decision accepted"));
+    let exact = get(&server, "/search?q=foo&exact=1");
+    assert!(
+        exact.body.contains("文字列一致・信頼度順"),
+        "{}",
+        exact.body
+    );
+    let decision = exact.body.find("2026-10-15-d.md").unwrap();
+    let note = exact.body.find("2026-10-14-a.md").unwrap();
+    assert!(decision < note, "採用済みの決定が先");
+    // 文で引ける（助詞を除いた「決定」で当たる）
+    assert!(
+        get(&server, "/search?q=foo%E3%81%AE%E6%B1%BA%E5%AE%9A%E3%81%AF")
+            .body
+            .contains("2026-10-15-d.md")
+    );
     let tagged = get(&server, "/search?tag=auth&domain=tech");
     assert!(tagged.body.contains("1 件"), "{}", tagged.body);
     assert!(tagged.body.contains("2026-10-14-a.md"));

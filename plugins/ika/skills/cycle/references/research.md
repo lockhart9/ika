@@ -6,9 +6,9 @@ cycle の 1 の詳しい手順。目的は「要件を決めるのに足りる�
 
 ```bash
 ika project show <name> --readme                       # 概要・関連する決定と知見
-ika kb search <語> <言い換え> --any -p <name> -l         # プロダクトに紐づくもの
-ika kb search <語> <言い換え> --any -d business -l       # 他のプロダクトで調べた市場・制度
-ika kb search --type insight -l                         # 横断の知見
+ika kb fts <問いの文や語> <言い換え> --any -p <name> -l   # プロダクトに紐づくもの（関連度順）
+ika kb fts <問いの文や語> <言い換え> --any -d business -l # 他のプロダクトで調べた市場・制度
+ika kb fts --type insight -l                            # 横断の知見（検索語なしは全件）
 ika data ls                                             # 競合比較・価格などのデータセット
 ika data sql "select ..."                               # 既存データで答えが出るか
 ```

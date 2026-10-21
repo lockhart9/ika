@@ -25,6 +25,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 取り込んだ外部の資料の全文（`type: source`。`ika import` が作り、取り込み直すと上書きされる。直接編集しない） |
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
+| `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない。Markdown からいつでも作り直せる |
 | `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。全データセットを1ファイルに持つ。人は直接読まず、`ika data` と `ika serve` で扱う |
 
 ### このリポジトリ（ツールとスキル）
@@ -76,7 +77,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 ## ナレッジを探すとき
 
 1. `ika project list` / `ika project show <name> --readme` で対象プロダクトの概要と関連ノートを確認する
-2. 問いが技術かビジネスかで領域（`-d tech` / `-d business`）を絞り、`ika kb search` でキーワード・タグ（`-t`）・プロダクト（`-p`）を検索する。当たらなければもう一方の領域も探す
+2. 問いが技術かビジネスかで領域（`-d tech` / `-d business`）を絞り、`ika kb fts` で問いの文やキーワード・タグ（`-t`）・プロダクト（`-p`）を検索する（関連度順。結果の `[種類 status]` で信頼度を見る）。当たらなければもう一方の領域と、`ika kb search`（文字列をそのまま含むか。信頼度順）も探す
 3. 回答には根拠にしたファイルのパスを添える。KBに無いことは「KBに記録なし」と言う
 
 ## スキルを足す・直すとき
@@ -121,6 +122,8 @@ ika kb ls [kb/tech]             # kb/ 配下の Markdown を一覧（パスは I
 ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ
 ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では新しい日付が先
 ika kb grep -n -C2 'review|レビュー' kb/tech   # ripgrep で検索する（正規表現・文脈行・-g・--json など。要 rg）。パスは IKA_HOME からの相対で kb/ の中だけ（省略すると kb/ 全体）。rg のオプションは許可リストにあるものだけ通し、--pre・-z・-f・-L など外部コマンドを動かす・kb/ の外を読むものは拒否する
+ika kb fts 申請を取り下げたい [-d tech -p <name> -t <tag> --type ... --status ... --any -l -n 20]   # 日本語の形態素解析つきの全文検索。kb search より優先して使う。文でも引け、関連度順に並ぶ（上位20件。検索語なしは全件を新しい日付順）。語の途中でも当たる（2文字以上）。索引は IKA_HOME/.cache/fts/ にあり、検索のたびに変わったファイルだけ自動で入れ直す
+ika kb index [--rebuild]        # fts の索引に kb/ の変更を反映する / 一から作り直す
 ika kb orphans [-p <name>] [--min 3]   # どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートをプロダクト別に数える（蒸留の候補）
 ika kb write <path> [--overwrite]   # 標準入力の全文でファイルを作る
 ika kb append <path>                # 標準入力を末尾に足す
@@ -133,7 +136,7 @@ ika data ls | show <name> [--tail 5]   # 一覧 / 定義・行数・末尾
 ika data sql "select ..." [--json]  # 読み取り専用で SELECT（テーブル名はデータセット名）。集計・結合もここで
 ika data export <name>              # CSV で標準出力へ
 ika data delete <name> --where "..." / rm <name>   # 行の訂正は消して追記し直す / データセットごと消す
-ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`
+ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる
 ika check                       # KB・登録簿・データセット定義の検証。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
