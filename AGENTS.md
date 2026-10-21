@@ -133,7 +133,7 @@ ika data ls | show <name> [--tail 5]   # 一覧 / 定義・行数・末尾
 ika data sql "select ..." [--json]  # 読み取り専用で SELECT（テーブル名はデータセット名）。集計・結合もここで
 ika data export <name>              # CSV で標準出力へ
 ika data delete <name> --where "..." / rm <name>   # 行の訂正は消して追記し直す / データセットごと消す
-ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）
+ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`
 ika check                       # KB・登録簿・データセット定義の検証。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）

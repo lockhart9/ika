@@ -16,6 +16,7 @@ use crate::kb;
 mod datasets;
 mod http;
 mod page;
+mod tags;
 
 use http::{Request, Response};
 
@@ -105,12 +106,18 @@ fn route(root: &Path, request: &Request) -> Result<Response> {
     Ok(match path {
         "/" => html(page::index(root)?),
         "/search" => html(page::search_page(root, request)?),
+        "/tags" | "/tags/" => html(tags::index(root, request)?),
         "/kb" => kb_page(root, "kb")?,
         _ => {
             if let Some(name) = path.strip_prefix("/data/") {
                 match datasets::page(root, name.trim_end_matches('/'))? {
                     Some(body) => html(body),
                     None => error(404, "そのデータセットはありません"),
+                }
+            } else if let Some(tag) = path.strip_prefix("/tags/") {
+                match tags::page(root, tag)? {
+                    Some(body) => html(body),
+                    None => error(404, "そのタグの付いたページはありません"),
                 }
             } else if let Some(name) = path.strip_prefix("/project/") {
                 match page::project_page(root, name.trim_end_matches('/'))? {
