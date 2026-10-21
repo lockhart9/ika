@@ -1206,22 +1206,41 @@ fn serve_shows_the_index_and_renders_markdown_pages() {
 
 #[test]
 fn serve_resolves_relative_links_between_notes_in_the_browser() {
-    // 相対リンクは URL の階層と KB の階層が同じなので、そのまま辿れる
+    // 相対リンクは元のファイルの場所から解決する。README はプロダクトのページ（/project/foo）にも
+    // 埋め込むので、ページの URL を基準にすると切れる
     let f = Fixture::new("serve-links");
     f.write("kb/tech/notes/2026/2026-10-14-a.md", NOTE);
     f.write(
         "kb/tech/insights/i.md",
         &NOTE.replace("本文", "[根拠](../notes/2026/2026-10-14-a.md)"),
     );
+    f.write(
+        "kb/projects/foo/README.md",
+        "---\ntitle: foo\ntype: project\nprojects: [foo]\n---\n\n[メモ](../../tech/notes/2026/2026-10-14-a.md) [要件](specs/s.md)\n",
+    );
+    f.write("kb/projects/foo/specs/s.md", NOTE);
     let server = f.serve();
     let page = get(&server, "/kb/tech/insights/i.md");
     assert!(
-        page.body.contains("href=\"../notes/2026/2026-10-14-a.md\""),
+        page.body
+            .contains("href=\"/kb/tech/notes/2026/2026-10-14-a.md\""),
         "{}",
         page.body
     );
-    let target = get(&server, "/kb/tech/notes/2026/2026-10-14-a.md");
-    assert_eq!(target.status, 200);
+    for url in ["/project/foo", "/kb/projects/foo/README.md"] {
+        let page = get(&server, url);
+        for href in [
+            "/kb/tech/notes/2026/2026-10-14-a.md",
+            "/kb/projects/foo/specs/s.md",
+        ] {
+            assert!(
+                page.body.contains(&format!("href=\"{href}\"")),
+                "{url}: {}",
+                page.body
+            );
+            assert_eq!(get(&server, href).status, 200, "{href}");
+        }
+    }
 }
 
 #[test]
