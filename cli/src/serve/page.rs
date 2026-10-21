@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd, TextMergeStream, html};
 
-use super::http::{Request, percent_encode};
+use super::http::{Request, percent_decode, percent_encode};
 use crate::kb::{self, search};
 use crate::registry::{self, Project};
 use crate::{check, frontmatter, project};
@@ -324,9 +324,54 @@ fn safe_url(url: CowStr<'_>) -> CowStr<'_> {
     url
 }
 
+/// 本文の相対リンクを、元のファイル（`doc`。ルートからの相対）の場所から解決して `/kb/...` の URL にする。
+/// README はプロダクトのページ（`/project/<name>`）にも埋め込むので、ページの URL を基準にすると切れる
+fn resolve_link<'a>(url: CowStr<'a>, doc: &Path) -> CowStr<'a> {
+    let split = url.find(['?', '#']).unwrap_or(url.len());
+    let (path, suffix) = url.split_at(split);
+    let has_scheme = path
+        .split('/')
+        .next()
+        .is_some_and(|first| first.contains(':'));
+    if path.is_empty() || path.starts_with('/') || has_scheme {
+        return url;
+    }
+    let Some(decoded) = percent_decode(path, false) else {
+        return url;
+    };
+    let mut parts: Vec<String> = doc
+        .parent()
+        .map(|dir| {
+            dir.iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    for segment in decoded.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return url;
+                }
+            }
+            name => parts.push(name.to_string()),
+        }
+    }
+    let trailing = if decoded.ends_with('/') && !parts.is_empty() {
+        "/"
+    } else {
+        ""
+    };
+    CowStr::from(format!(
+        "/{}{trailing}{suffix}",
+        percent_encode(&parts.join("/"))
+    ))
+}
+
 /// Markdown を HTML にする。本文中の生の HTML は実行されないよう、文字として表示する。
-/// 段落内の改行は末尾の空白なしでも `<br>` にする
-pub fn markdown(text: &str) -> String {
+/// 段落内の改行は末尾の空白なしでも `<br>` にする。相対リンクは `doc`（元のファイル）を基準に解決する
+pub fn markdown(text: &str, doc: &Path) -> String {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
@@ -356,7 +401,7 @@ pub fn markdown(text: &str) -> String {
             id,
         }) => Event::Start(Tag::Link {
             link_type,
-            dest_url: safe_url(dest_url),
+            dest_url: resolve_link(safe_url(dest_url), doc),
             title,
             id,
         }),
@@ -367,7 +412,7 @@ pub fn markdown(text: &str) -> String {
             id,
         }) => Event::Start(Tag::Image {
             link_type,
-            dest_url: safe_url(dest_url),
+            dest_url: resolve_link(safe_url(dest_url), doc),
             title,
             id,
         }),
@@ -488,7 +533,7 @@ pub fn markdown_page(root: &Path, rel: &Path, text: &str) -> Result<String> {
         crumbs(rel),
         esc(&title),
         meta.join(" · "),
-        markdown(frontmatter::body(text))
+        markdown(frontmatter::body(text), rel)
     );
 
     let referrers = kb::inbound(root, rel)?;
@@ -532,7 +577,7 @@ pub fn project_page(root: &Path, name: &str) -> Result<Option<String>> {
         body.push_str(&format!(
             "<h2>概要 <a class=\"muted\" href=\"{}\">README</a></h2><article>{}</article>",
             kb_url(rel),
-            markdown(frontmatter::body(&text))
+            markdown(frontmatter::body(&text), rel)
         ));
     }
 
@@ -664,6 +709,7 @@ mod tests {
     fn markdown_renders_but_never_emits_raw_html_or_script_links() {
         let html = markdown(
             "# 見出し\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1)) [y](https://example.test/a) [z](../a.md)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
+            Path::new("kb/tech/notes/x.md"),
         );
         assert!(html.contains("<h1>見出し</h1>"));
         assert!(html.contains("<table>"));
@@ -671,12 +717,12 @@ mod tests {
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("javascript:"), "{html}");
         assert!(html.contains("href=\"https://example.test/a\""));
-        assert!(html.contains("href=\"../a.md\""));
+        assert!(html.contains("href=\"/kb/tech/a.md\""), "{html}");
     }
 
     #[test]
     fn markdown_keeps_single_newlines_as_line_breaks() {
-        let html = markdown("1行目\n2行目\n\n3行目");
+        let html = markdown("1行目\n2行目\n\n3行目", Path::new("kb/x.md"));
         assert!(html.contains("<p>1行目<br />\n2行目</p>"), "{html}");
         assert!(html.contains("<p>3行目</p>"), "{html}");
     }
@@ -685,6 +731,7 @@ mod tests {
     fn markdown_links_bare_urls_but_not_inside_code_or_links() {
         let html = markdown(
             "出典 https://example.test/a?x=1&y=2 です。(https://example.test/b). [t](https://example.test/c) `https://example.test/d`\n\n```\nhttps://example.test/e\n```\n\nhttps://example.test/f_g_h\n",
+            Path::new("kb/x.md"),
         );
         assert!(
             html.contains("<a href=\"https://example.test/a?x=1&amp;y=2\">"),
@@ -703,6 +750,30 @@ mod tests {
         assert!(!html.contains("href=\"https://example.test/e\""), "{html}");
         assert!(
             html.contains("href=\"https://example.test/f_g_h\""),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn markdown_resolves_relative_links_from_the_source_file() {
+        // README はプロダクトのページにも埋め込むので、ページの URL ではなくファイルの場所が基準
+        let html = markdown(
+            "[a](../../tech/notes/2026/a.md) [b](specs/b.md#x) [c](./sources/c%20d.md) [d](../other/) [e](#top) [f](/kb/tech/) [g](../../../../up.md) ![i](img/p.png)",
+            Path::new("kb/projects/foo/README.md"),
+        );
+        for href in [
+            "/kb/tech/notes/2026/a.md",
+            "/kb/projects/foo/specs/b.md#x",
+            "/kb/projects/foo/sources/c%20d.md",
+            "/kb/projects/other/",
+            "#top",
+            "/kb/tech/",
+            "../../../../up.md",
+        ] {
+            assert!(html.contains(&format!("href=\"{href}\"")), "{href}: {html}");
+        }
+        assert!(
+            html.contains("src=\"/kb/projects/foo/img/p.png\""),
             "{html}"
         );
     }
