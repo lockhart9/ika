@@ -9,10 +9,14 @@ use zip::write::SimpleFileOptions;
 
 use crate::{check, frontmatter, registry, root as roots, skills};
 
+mod html;
+
 #[derive(clap::Args)]
 pub struct Args {
-    /// 書き出し先のクライアント
+    /// 書き出し先のクライアント（html は KB のページを単独の HTML にする）
     target: Target,
+    /// （html のみ）書き出す kb/ のページ（例: kb/tech/notes/2026/2026-10-14-foo.md）
+    path: Option<String>,
     /// （claude のみ）KB のスナップショットも dist/claude/ に書き出す。claude.ai のプロジェクトの
     /// 知識として上げる用で、読み取り専用。KB の内容がクラウドに上がるので、渡してよい範囲を確かめる
     #[arg(long)]
@@ -26,6 +30,15 @@ pub struct Args {
     /// `ika import` で取り込んだ資料（sources/）の全文も含める。量が多く、社外秘の資料もありうるので既定では含めない
     #[arg(long)]
     with_sources: bool,
+    /// （html のみ）プロダクトの README・資料・要件書・決定・知見を1ファイルに束ねる
+    #[arg(long)]
+    project: Option<String>,
+    /// （html のみ）KB 全体を書き出す（入口は index.html）
+    #[arg(long)]
+    all: bool,
+    /// （html のみ）書き出したらブラウザで開く
+    #[arg(long)]
+    open: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -34,6 +47,8 @@ enum Target {
     Claude,
     /// プロジェクトの指示文とナレッジ束（ChatGPT の Projects 用）
     Chatgpt,
+    /// KB のページを、図と表の入った単独の HTML にする（IKA_HOME/.cache/html/。どこからでも実行できる）
+    Html,
 }
 
 /// 書き出す KB の範囲
@@ -43,7 +58,29 @@ struct Scope {
     sources: bool,
 }
 
-pub fn run(root: &Path, args: Args) -> Result<()> {
+pub fn run(args: Args) -> Result<()> {
+    let html_only = args.path.is_some() || args.project.is_some() || args.all || args.open;
+    let kb_only = args.with_kb || !args.domains.is_empty() || args.no_projects || args.with_sources;
+    if let Target::Html = args.target {
+        if kb_only {
+            bail!(
+                "--with-kb・--domain・--no-projects・--with-sources は claude・chatgpt で使います"
+            );
+        }
+        return html::run(
+            &roots::data_dir()?,
+            html::Request {
+                path: args.path,
+                project: args.project,
+                all: args.all,
+                open: args.open,
+            },
+        );
+    }
+    if html_only {
+        bail!("ページのパス・--project・--all・--open は html で使います");
+    }
+    let root = &roots::repo()?;
     let scope = Scope {
         domains: args.domains,
         projects: !args.no_projects,
@@ -57,6 +94,7 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
             claude(root, args.with_kb.then_some(&scope))
         }
         Target::Chatgpt => chatgpt(root, &scope),
+        Target::Html => unreachable!("先に返している"),
     }
 }
 

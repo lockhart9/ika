@@ -46,6 +46,17 @@ fn is_repo(path: &Path) -> bool {
     path.join("AGENTS.md").is_file() && path.join("plugins/ika").is_dir()
 }
 
+/// 作り直せる生成物の置き場（`IKA_HOME/.cache/`）。中身は KB の git に入れない
+pub fn cache_dir(home: &Path) -> Result<PathBuf> {
+    let cache = home.join(".cache");
+    std::fs::create_dir_all(&cache)?;
+    let ignore = cache.join(".gitignore");
+    if !ignore.exists() {
+        std::fs::write(&ignore, "*\n")?;
+    }
+    Ok(cache)
+}
+
 fn home_dir() -> Result<PathBuf> {
     match env::var_os("HOME") {
         Some(home) => Ok(PathBuf::from(home)),

@@ -26,6 +26,8 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
 | `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない。Markdown からいつでも作り直せる |
+| `.cache/html/` | `ika export html` の出力（KB と同じ階層の単独の HTML）。git に入れない。Markdown からいつでも作り直せる |
+| `theme/style.css` | `ika export html` の見た目の上書き（任意。色・フォントの CSS 変数を `:root` で上書きする） |
 | `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。全データセットを1ファイルに持つ。人は直接読まず、`ika data` と `ika serve` で扱う |
 
 ### このリポジトリ（ツールとスキル）
@@ -40,6 +42,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `.claude-plugin/marketplace.json` | Claude 向けプラグイン置き場の定義（このリポジトリ自体。公開ストアではなくローカル用） |
 | `.agents/plugins/marketplace.json` | Codex・ChatGPT 向けプラグイン置き場の定義（ローカル用） |
 | `cli/` | `ika` CLI（Rust）。登録・検証・各クライアント向けエクスポート |
+| `crates/ika-diagram/` | 図の記法（`seq`・`flow` など）を解析し、CSS だけで描く HTML にするライブラリ（依存なし・publish しない） |
 | `dist/` | `ika export` の出力（Git管理外） |
 | `local/` | Git に入れない下書き・機密メモ（Git管理外） |
 
@@ -138,9 +141,10 @@ ika data sql "select ..." [--json]  # 読み取り専用で SELECT（テーブ�
 ika data export <name>              # CSV で標準出力へ
 ika data delete <name> --where "..." / rm <name>   # 行の訂正は消して追記し直す / データセットごと消す
 ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる
-ika check                       # KB・登録簿・データセット定義の検証。リポジトリ内で実行するとプラグインも検証する
+ika check                       # KB・登録簿・データセット定義・図の記法の検証。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
 ika export claude [--with-kb] [--domain <領域>]... [--no-projects] [--with-sources]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る
 ika export chatgpt [--domain <領域>]... [--no-projects]   # dist/chatgpt/（ChatGPT web のプロジェクト用。IKA_HOME の KB を束ねる。リポジトリ内で実行）
+ika export html <kb/...md> | --project <name> | --all [--open]   # KB のページを、図（docs/kb-format.md の「図」）と表の入った単独の HTML にする。出力は IKA_HOME/.cache/html/（KB と同じ階層。--project は project-<name>.html に README・資料・要件書・決定・知見を束ね、--all は index.html が入口）。JS・外部参照なし、画像は埋め込み。図の記法に誤りがあれば書き出さない。どこからでも動く
 ```

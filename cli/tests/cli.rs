@@ -1409,7 +1409,9 @@ fn serve_shows_the_index_and_renders_markdown_pages() {
     assert_eq!(page.status, 200);
     assert!(page.headers.contains("text/html; charset=utf-8"));
     assert!(page.body.contains("<h1>n</h1>"), "{}", page.body);
-    assert!(page.body.contains("<h2>要点</h2>") && page.body.contains("<li>箇条書き</li>"));
+    assert!(
+        page.body.contains("<h2 id=\"要点\">要点</h2>") && page.body.contains("<li>箇条書き</li>")
+    );
     assert!(page.body.contains("<table>"));
     assert!(
         page.body.contains("href=\"/project/foo\"") && page.body.contains("href=\"/tags/auth\"")
@@ -1571,8 +1573,11 @@ fn serve_shows_projects_and_searches_in_trust_order() {
     assert_eq!(project.status, 200);
     assert!(project.body.contains("関連（2 件）"), "{}", project.body);
     assert_eq!(
-        project.body.matches("<h1>foo</h1>").count(),
-        2,
+        (
+            project.body.matches("<h1>foo</h1>").count(),
+            project.body.matches("<h1 id=\"foo\">foo</h1>").count()
+        ),
+        (1, 1),
         "見出しと、描画された README"
     );
     assert!(project.body.contains("2026-10-14-a.md"));
@@ -2651,4 +2656,282 @@ fn edit_accepts_text_starting_with_a_hyphen() {
     ]);
     assert!(run.ok, "{}", run.err);
     assert!(f.read(path).contains("- 新しい項目"));
+}
+
+// ---- ika export html ----
+
+/// 1×1 の PNG
+const PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52, 0, 0, 0,
+    1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89,
+];
+
+fn doc(kind: &str, title: &str, date: &str, status: &str, body: &str) -> String {
+    let status = if status.is_empty() {
+        String::new()
+    } else {
+        format!("status: {status}\n")
+    };
+    format!(
+        "---\ntitle: {title}\ntype: {kind}\ndate: {date}\nprojects: [foo]\ntags: [t]\n{status}---\n\n{body}\n"
+    )
+}
+
+#[test]
+fn export_html_writes_a_standalone_page_without_scripts_or_external_loads() {
+    let f = Fixture::new("export-html-page");
+    fs::write(f.root().join("kb/tech/notes/2026/p.png"), PNG).unwrap();
+    let note = doc(
+        "note",
+        "図のノート",
+        "2026-10-23",
+        "",
+        "## 流れ\n\n```seq 呼び出し\n利用者 => ika: 打つ\nika --> 利用者: 開く\n```\n\n\
+         > [!NOTE]\n> メモ\n\n<script>alert(1)</script>\n\n![図](p.png) ![外](https://example.test/x.png)\n\n\
+         [README](../../../projects/foo/README.md) [外部](https://example.test/)\n",
+    );
+    f.write("kb/tech/notes/2026/2026-10-23-a.md", &note);
+
+    let run = f.ika(&["export", "html", "kb/tech/notes/2026/2026-10-23-a.md"]);
+    assert!(run.ok, "{}", run.err);
+    let out = ".cache/html/kb/tech/notes/2026/2026-10-23-a.html";
+    assert!(run.out.contains(out), "{}", run.out);
+    let html = f.read(out);
+    // R1: スクリプトなし・外部の読み込みなし・CSS はインライン
+    assert!(!html.contains("<script"), "{html}");
+    assert!(html.contains("&lt;script&gt;"));
+    assert!(
+        html.contains("content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\"")
+    );
+    assert!(
+        !html.contains("src=\"http") && !html.contains("<link"),
+        "{html}"
+    );
+    assert!(html.contains("<style>") && html.contains(".ikd-seq-grid"));
+    // R5: 図と、説明つきの図の番号
+    assert!(html.contains("<div class=\"ikd ikd-seq\">"));
+    assert!(html.contains("<figcaption><b>図1</b>呼び出し</figcaption>"));
+    assert!(html.contains("<blockquote class=\"markdown-alert-note\">"));
+    // R4: 画像は data URI。外部の画像はリンクにする
+    assert!(
+        html.contains("src=\"data:image/png;base64,iVBORw0KGgo"),
+        "{html}"
+    );
+    assert!(html.contains("<a href=\"https://example.test/x.png\">画像: 外</a>"));
+    // R3: 書き出していないページはリンクを外し、パスを添える。外部のリンクはそのまま
+    assert!(html.contains(
+        "<span class=\"nolink\">README</span><span class=\"kbpath\">kb/projects/foo/README.md</span>"
+    ));
+    assert!(html.contains("<a href=\"https://example.test/\">外部</a>"));
+    // 目次とメタ情報
+    assert!(html.contains("<a href=\"#流れ\">流れ</a>"));
+    assert!(html.contains("<dt>種類</dt><dd>ノート</dd>"));
+    // R11: KB は変わらず、出力は git に入らない
+    assert_eq!(f.read("kb/tech/notes/2026/2026-10-23-a.md"), note);
+    assert_eq!(f.read(".cache/.gitignore"), "*\n");
+}
+
+#[test]
+fn export_html_bundles_a_project_in_order_with_ended_items_folded() {
+    let f = Fixture::new("export-html-bundle");
+    f.write(
+        "kb/projects/foo/README.md",
+        "---\ntitle: foo\ntype: project\ndate: 2026-10-14\nprojects: [foo]\ntags: []\n---\n\n概要。[要件](specs/b.md#受け入れ) [知見](../../tech/insights/i.md)\n",
+    );
+    f.write(
+        "kb/projects/foo/architecture.md",
+        &doc("note", "技術構成", "2026-10-01", "", "構成"),
+    );
+    f.write(
+        "kb/projects/foo/specs/a.md",
+        &doc("spec", "下書きの要件", "2026-10-20", "draft", "a"),
+    );
+    f.write(
+        "kb/projects/foo/specs/b.md",
+        &doc(
+            "spec",
+            "承認済みの要件",
+            "2026-10-10",
+            "approved",
+            "## 受け入れ\n\nb",
+        ),
+    );
+    f.write(
+        "kb/projects/foo/specs/c.md",
+        &doc("spec", "やめた要件", "2026-10-05", "dropped", "c"),
+    );
+    f.write(
+        "kb/tech/decisions/d1.md",
+        &doc("decision", "案の決定", "2026-10-22", "proposed", "d"),
+    );
+    f.write(
+        "kb/tech/decisions/d2.md",
+        &doc("decision", "採用した決定", "2026-10-02", "accepted", "d"),
+    );
+    f.write(
+        "kb/tech/decisions/d3.md",
+        &doc("decision", "覆された決定", "2026-09-01", "superseded", "d"),
+    );
+    f.write(
+        "kb/tech/insights/i.md",
+        &doc("insight", "知見", "2026-10-11", "", "i"),
+    );
+    f.write(
+        "kb/tech/notes/2026/n.md",
+        &doc("note", "関係するノート", "2026-10-12", "", "n"),
+    );
+    f.write(
+        "kb/projects/foo/sources/s.md",
+        &doc("source", "取り込んだ資料", "2026-10-12", "", "s"),
+    );
+
+    let run = f.ika(&["export", "html", "--project", "foo"]);
+    assert!(run.ok, "{}", run.err);
+    let html = f.read(".cache/html/project-foo.html");
+    let at = |title: &str| {
+        html.find(&format!("<h2 class=\"doc-title\">{title}</h2>"))
+            .unwrap_or_else(|| panic!("{title} がありません: {html}"))
+    };
+    // R2: README → 資料 → 要件書（approved → draft）→ 決定（accepted → proposed）→ 知見 → 終わったもの
+    let order = [
+        "foo",
+        "技術構成",
+        "承認済みの要件",
+        "下書きの要件",
+        "採用した決定",
+        "案の決定",
+        "知見",
+        "やめた要件",
+        "覆された決定",
+    ];
+    let positions: Vec<_> = order.iter().map(|t| at(t)).collect();
+    assert!(positions.windows(2).all(|w| w[0] < w[1]), "{positions:?}");
+    let ended = html.find("<details class=\"ended\"").unwrap();
+    assert!(ended < at("やめた要件") && ended > at("知見"));
+    // ノートは題名とリンクだけ、取り込んだ資料は入れない
+    assert!(html.contains("<p class=\"part\" id=\"g-notes\">関連ノート</p>"));
+    assert!(!html.contains("doc-title\">関係するノート"));
+    assert!(!html.contains("取り込んだ資料"));
+    // 束ねた中のリンクはアンカー（見出しへのリンクは、そのページの接頭辞つき。href の日本語はエンコードされる）
+    assert!(
+        html.contains("href=\"#d3-%E5%8F%97%E3%81%91%E5%85%A5%E3%82%8C\""),
+        "{html}"
+    );
+    assert!(html.contains("<h3 id=\"d3-受け入れ\">"), "{html}");
+    assert!(html.contains("href=\"#d7\""), "{html}");
+}
+
+#[test]
+fn export_html_all_links_pages_relatively_and_applies_the_theme() {
+    let f = Fixture::new("export-html-all");
+    f.write(
+        "kb/tech/notes/2026/2026-10-14-a.md",
+        &NOTE.replace("本文", "[README](../../../projects/foo/README.md#foo)"),
+    );
+    f.write(
+        "theme/style.css",
+        ":root { --accent:#c00; } /* </style><script>x</script> */",
+    );
+
+    let run = f.ika(&["export", "html", "--all"]);
+    assert!(run.ok, "{}", run.err);
+    assert!(run.out.contains("2 ページを書き出しました"), "{}", run.out);
+    let html = f.read(".cache/html/kb/tech/notes/2026/2026-10-14-a.html");
+    assert!(
+        html.contains("href=\"../../../projects/foo/README.html#foo\""),
+        "{html}"
+    );
+    // R8: テーマは既定のあと。<style> を閉じられない
+    let theme = html.find("--accent:#c00").unwrap();
+    assert!(theme > html.find(".ikd-seq-grid").unwrap());
+    assert!(!html.contains("</style><script>"));
+    let index = f.read(".cache/html/index.html");
+    assert!(
+        index.contains("href=\"kb/tech/notes/2026/2026-10-14-a.html\""),
+        "{index}"
+    );
+    assert!(f.exists(".cache/html/kb/projects/foo/README.html"));
+}
+
+#[test]
+fn diagram_errors_stop_the_export_and_are_reported_by_check() {
+    let f = Fixture::new("export-html-errors");
+    f.write(
+        "kb/tech/notes/2026/2026-10-14-a.md",
+        &NOTE.replace("本文", "前\n\n```timeline\n先週: 何かした\n```\n"),
+    );
+
+    let run = f.ika(&["export", "html", "--all"]);
+    assert!(!run.ok);
+    assert!(
+        run.err
+            .contains("kb/tech/notes/2026/2026-10-14-a.md: 12行目: 図（timeline）: 日付は"),
+        "{}",
+        run.err
+    );
+    assert!(!f.exists(".cache/html/index.html"), "1ファイルも書かない");
+
+    let check = f.ika(&["check"]);
+    assert!(!check.ok);
+    assert!(
+        check
+            .out
+            .contains("kb/tech/notes/2026/2026-10-14-a.md: 12行目: 図（timeline）"),
+        "{}",
+        check.out
+    );
+}
+
+#[test]
+fn export_html_needs_exactly_one_target() {
+    let f = Fixture::new("export-html-args");
+    for args in [
+        vec!["export", "html"],
+        vec!["export", "html", "--all", "--project", "foo"],
+        vec!["export", "html", "kb/projects/foo"],
+        vec!["export", "html", "--project", "bar"],
+        vec!["export", "html", "--all", "--with-kb"],
+    ] {
+        let run = f.ika(&args);
+        assert!(!run.ok, "{args:?}");
+    }
+}
+
+#[test]
+fn serve_renders_diagrams_without_allowing_scripts() {
+    let f = Fixture::new("serve-diagrams");
+    f.write(
+        "kb/tech/notes/2026/2026-10-14-a.md",
+        &NOTE.replace(
+            "本文",
+            "```flow\na -> ?b\n  はい: +c\n```\n\n```seq\nA ->> B\n```\n",
+        ),
+    );
+    f.write(
+        "kb/projects/foo/sources/s.md",
+        &doc(
+            "source",
+            "取り込んだ資料",
+            "2026-10-12",
+            "",
+            "```seq\nA ->> B\n```",
+        ),
+    );
+    let server = f.serve();
+    let page = get(&server, "/kb/tech/notes/2026/2026-10-14-a.md");
+    assert!(
+        page.body.contains("<div class=\"ikd ikd-flow\">"),
+        "{}",
+        page.body
+    );
+    // 誤った図は、その場所に理由を出す
+    assert!(page.body.contains("<div class=\"ikd-error\">"));
+    assert!(!page.headers.contains("script-src"));
+    // 取り込んだ資料の図は展開しない
+    let source = get(&server, "/kb/projects/foo/sources/s.md");
+    assert!(
+        source.body.contains("<code class=\"language-seq\">"),
+        "{}",
+        source.body
+    );
 }

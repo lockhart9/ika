@@ -64,7 +64,7 @@ enum Command {
     Check,
     /// 正本（docs/kb-format.md・templates/）をプラグインのスキルにコピーする
     Sync,
-    /// 各クライアント向けに dist/ へ書き出す
+    /// 各クライアント向けに dist/ へ書き出す。html は KB のページを図と表の入った単独の HTML にする
     Export(export::Args),
     /// このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（公開・アップロードはしない）
     Install(install::Args),
@@ -105,9 +105,10 @@ fn run() -> anyhow::Result<ExitCode> {
         Command::New(args) => new::run(&root::data_dir()?, args)?,
         Command::Import(args) => import::run(args)?,
         Command::Check => return check::run(&root::data_dir()?, root::repo().ok().as_deref()),
+        // claude・chatgpt はリポジトリ、html は KB のデータを読む（中で分ける）
+        Command::Export(args) => export::run(args)?,
         // ika のリポジトリ（プラグイン・ひな形）を扱う開発用コマンド
         Command::Sync => skills::sync(&root::repo()?)?,
-        Command::Export(args) => export::run(&root::repo()?, args)?,
         Command::Install(args) => install::run(&root::repo()?, args)?,
     }
     Ok(ExitCode::SUCCESS)
