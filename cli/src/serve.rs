@@ -59,7 +59,7 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
     Ok(())
 }
 
-fn open_browser(url: &str) {
+pub(crate) fn open_browser(url: &str) {
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else {

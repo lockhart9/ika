@@ -11,6 +11,7 @@ mod new;
 mod plugin;
 mod project;
 mod registry;
+mod render;
 mod root;
 mod serve;
 mod skills;
