@@ -1,0 +1,9 @@
+[package]
+name = "ika-diagram"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "KB の Markdown に書く図の記法（seq・flow・layers・er・class・timeline・compare）を解析し、CSS だけで描く HTML にする"
+publish = false
+
+[dependencies]

@@ -1119,6 +1119,7 @@ dependencies = [
  "clap",
  "csv",
  "htmd",
+ "ika-diagram",
  "libc",
  "lindera",
  "lopdf",
@@ -1133,6 +1134,10 @@ dependencies = [
  "tantivy",
  "zip",
 ]
+
+[[package]]
+name = "ika-diagram"
+version = "0.1.0"
 
 [[package]]
 name = "indexmap"
