@@ -105,44 +105,7 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
     })
 }
 
-/// `%XX` を戻す。不正な並びや UTF-8 でなければ `None`。NUL は拒否する
-pub fn percent_decode(text: &str, plus_is_space: bool) -> Option<String> {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'%' => {
-                let hex = text.get(i + 1..i + 3)?;
-                out.push(u8::from_str_radix(hex, 16).ok()?);
-                i += 3;
-            }
-            b'+' if plus_is_space => {
-                out.push(b' ');
-                i += 1;
-            }
-            b => {
-                out.push(b);
-                i += 1;
-            }
-        }
-    }
-    let decoded = String::from_utf8(out).ok()?;
-    (!decoded.contains('\0')).then_some(decoded)
-}
-
-/// URL のパス・クエリに使えるよう、英数字と `-_.~/` 以外を `%XX` にする
-pub fn percent_encode(text: &str) -> String {
-    let mut out = String::new();
-    for b in text.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
-}
+pub use crate::render::{percent_decode, percent_encode};
 
 fn reason(status: u16) -> &'static str {
     match status {

@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli"]
+members = ["cli", "crates/ika-diagram"]
 resolver = "3"
 
 [workspace.package]

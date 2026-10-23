@@ -125,6 +125,16 @@ ika serve --open   # http://127.0.0.1:8787/ を開く
 
 KB を Markdown のままブラウザで読めます。トップ、領域ごとの一覧、プロダクトのページ、検索があり、ノート同士のリンクも辿れます。読み取り専用で、手元の `127.0.0.1` だけで待ち受けます。ファイルは毎回読み直すので、`ika` で書いたあとは再読み込みで見えます。
 
+資料として読むなら、単独の HTML に書き出します。図（シーケンス図・フロー・層・ER 図・クラス図・年表・案の比較）は CSS だけで描き、JavaScript は使いません。
+
+```bash
+ika export html kb/projects/foo/specs/bar.md --open   # 1ページ
+ika export html --project foo --open                  # プロダクトの README・資料・要件書・決定・知見を1ファイルに
+ika export html --all                                 # KB 全体（IKA_HOME/.cache/html/index.html が入口）
+```
+
+図の書き方は [docs/kb-format.md](docs/kb-format.md) の「図」。見た目は `IKA_HOME/theme/style.css` で色・フォントの変数を上書きできます。
+
 <details>
 <summary>セキュリティ上の挙動（クリックで開く）</summary>
 

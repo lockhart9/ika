@@ -171,9 +171,14 @@ fn check_file(
     }
 
     problems.extend(check_location(rel, &fields, &file_projects, domains));
-    // 取り込んだ資料のリンクは原本の置き場所を前提にしているので、KB の中では確かめない
+    // 取り込んだ資料のリンクは原本の置き場所を前提にしているので、KB の中では確かめない。
+    // 図の記法も、取り込んだ資料では展開しないので確かめない
     if fields.get("type").is_none_or(|t| t != "source") {
         problems.extend(check_links(root, rel, text));
+        let offset = frontmatter::head(text).matches('\n').count();
+        for error in crate::render::diagram_errors(frontmatter::body(text)) {
+            problems.push(format!("{}行目: {}", error.line + offset, error.message));
+        }
     }
     problems
 }

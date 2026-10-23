@@ -4,22 +4,22 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd, TextMergeStream, html};
 
 use super::http::{Request, percent_decode, percent_encode};
 use crate::kb::{self, fts, search};
 use crate::registry::{self, Project};
+use crate::render::{self, Href, RenderOptions, is_web_url};
 use crate::{check, frontmatter, project};
+
+pub use crate::render::esc;
 
 /// 日本語の Web フォント（Google Fonts の CDN）。`display=swap` で、読み込めるまでは次のフォントで表示する
 const FONT_CSS_URL: &str =
     "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap";
 
 const CSS: &str = r#"
-:root { --bg:#fff; --fg:#1f2328; --muted:#656d76; --line:#d8dee4; --soft:#f6f8fa; --link:#0969da; --accent:#8250df; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8d96a0; --line:#30363d; --soft:#161b22; --link:#58a6ff; --accent:#bc8cff; }
-}
+/* 色は ika-diagram の変数（ika export html と同じ）を使う。ライト・ダークもそちらで切り替わる */
+:root { --bg:var(--paper); --fg:var(--ink); --muted:var(--ink-2); --soft:var(--raise); --link:var(--accent); }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); letter-spacing:.01em;
   font:17px/1.9 "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif; }
@@ -70,22 +70,6 @@ form.search { display:flex; flex-wrap:wrap; gap:.4rem; margin:.6rem 0 1rem; }
 @media (max-width:40rem) { header .bar { flex-wrap:wrap; } header form { margin-left:0; width:100%; } header input[name=q] { flex:1; } }
 "#;
 
-/// HTML に埋め込む文字列のエスケープ
-pub fn esc(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
 /// ルートからの相対パス（`kb/...`）のページの URL
 fn kb_url(rel: &Path) -> String {
     let parts: Vec<_> = rel.iter().map(|p| p.to_string_lossy()).collect();
@@ -102,12 +86,14 @@ pub(super) fn layout(title: &str, query: &str, body: &str) -> String {
     format!(
         "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-         <title>{}</title><style>{CSS}</style></head><body>\
+         <title>{}</title><style>{}{}{CSS}</style></head><body>\
          <header><div class=\"bar\"><a class=\"logo\" href=\"/\">ika</a><a href=\"/tags\">タグ</a>\
          <form action=\"/search\" method=\"get\"><input name=\"q\" value=\"{}\" placeholder=\"KB を検索\" size=\"22\">\
          <button>検索</button></form></div></header><main>{body}</main>\
          <link rel=\"stylesheet\" href=\"{FONT_CSS_URL}\"></body></html>",
         esc(title),
+        ika_diagram::CSS,
+        render::CALLOUT_CSS,
         esc(query)
     )
 }
@@ -324,21 +310,9 @@ pub fn directory(root: &Path, rel: &Path) -> Result<String> {
 
 // ---- Markdown ----
 
-/// `http(s):`・`mailto:`・スキームなしの相対リンクだけを通す（`javascript:` などは無効にする）
-fn safe_url(url: CowStr<'_>) -> CowStr<'_> {
-    let first = url.split(['/', '?', '#']).next().unwrap_or("");
-    if let Some((scheme, _)) = first.split_once(':') {
-        let scheme = scheme.to_ascii_lowercase();
-        if !matches!(scheme.as_str(), "http" | "https" | "mailto") {
-            return CowStr::from("#");
-        }
-    }
-    url
-}
-
 /// 本文の相対リンクを、元のファイル（`doc`。ルートからの相対）の場所から解決して `/kb/...` の URL にする。
 /// README はプロダクトのページ（`/project/<name>`）にも埋め込むので、ページの URL を基準にすると切れる
-fn resolve_link<'a>(url: CowStr<'a>, doc: &Path) -> CowStr<'a> {
+fn resolve_link(url: &str, doc: &Path) -> String {
     let split = url.find(['?', '#']).unwrap_or(url.len());
     let (path, suffix) = url.split_at(split);
     let has_scheme = path
@@ -346,10 +320,10 @@ fn resolve_link<'a>(url: CowStr<'a>, doc: &Path) -> CowStr<'a> {
         .next()
         .is_some_and(|first| first.contains(':'));
     if path.is_empty() || path.starts_with('/') || has_scheme {
-        return url;
+        return url.to_string();
     }
     let Some(decoded) = percent_decode(path, false) else {
-        return url;
+        return url.to_string();
     };
     let mut parts: Vec<String> = doc
         .parent()
@@ -364,7 +338,7 @@ fn resolve_link<'a>(url: CowStr<'a>, doc: &Path) -> CowStr<'a> {
             "" | "." => {}
             ".." => {
                 if parts.pop().is_none() {
-                    return url;
+                    return url.to_string();
                 }
             }
             name => parts.push(name.to_string()),
@@ -375,134 +349,23 @@ fn resolve_link<'a>(url: CowStr<'a>, doc: &Path) -> CowStr<'a> {
     } else {
         ""
     };
-    CowStr::from(format!(
-        "/{}{trailing}{suffix}",
-        percent_encode(&parts.join("/"))
-    ))
+    format!("/{}{trailing}{suffix}", percent_encode(&parts.join("/")))
 }
 
-/// Markdown を HTML にする。本文中の生の HTML は実行されないよう、文字として表示する。
-/// 段落内の改行は末尾の空白なしでも `<br>` にする。相対リンクは `doc`（元のファイル）を基準に解決する
+/// Markdown を HTML にする（[`render::markdown`]）。相対リンクは `doc`（元のファイル）を基準に解決する。
+/// 図の記法の誤りは、その場所に理由を表示する（取り込んだ資料の図は展開しない）
 pub fn markdown(text: &str, doc: &Path) -> String {
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_FOOTNOTES;
-    let mut in_link = false;
-    let mut in_code_block = false;
-    let events = TextMergeStream::new(Parser::new_ext(text, options)).flat_map(move |event| {
-        match &event {
-            Event::Start(Tag::Link { .. }) => in_link = true,
-            Event::End(TagEnd::Link) => in_link = false,
-            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
-            Event::End(TagEnd::CodeBlock) => in_code_block = false,
-            _ => {}
-        }
-        match event {
-            Event::Text(text) if !in_link && !in_code_block => autolink(text),
-            other => vec![other],
-        }
-    });
-    let events = events.map(|event| match event {
-        Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
-        Event::SoftBreak => Event::HardBreak,
-        Event::Start(Tag::Link {
-            link_type,
-            dest_url,
-            title,
-            id,
-        }) => Event::Start(Tag::Link {
-            link_type,
-            dest_url: resolve_link(safe_url(dest_url), doc),
-            title,
-            id,
-        }),
-        Event::Start(Tag::Image {
-            link_type,
-            dest_url,
-            title,
-            id,
-        }) => Event::Start(Tag::Image {
-            link_type,
-            dest_url: resolve_link(safe_url(dest_url), doc),
-            title,
-            id,
-        }),
-        other => other,
-    });
-    let mut out = String::new();
-    html::push_html(&mut out, events);
-    out
-}
-
-/// 本文中の裸の `http(s)://` URL をリンクにする（CommonMark には自動リンクがない）
-fn autolink(text: CowStr<'_>) -> Vec<Event<'_>> {
-    let mut events = Vec::new();
-    let mut rest: &str = &text;
-    let mut plain_from = 0;
-    let mut offset = 0;
-    while let Some(found) = rest.find("http") {
-        let start = offset + found;
-        let tail = &text[start..];
-        let has_scheme = tail.starts_with("http://") || tail.starts_with("https://");
-        let len = if has_scheme { url_len(tail) } else { 0 };
-        let min = if tail.starts_with("https://") { 8 } else { 7 };
-        if len > min {
-            if plain_from < start {
-                events.push(Event::Text(text[plain_from..start].to_string().into()));
-            }
-            let url = &tail[..len];
-            events.push(Event::Start(Tag::Link {
-                link_type: pulldown_cmark::LinkType::Autolink,
-                dest_url: url.to_string().into(),
-                title: "".into(),
-                id: "".into(),
-            }));
-            events.push(Event::Text(url.to_string().into()));
-            events.push(Event::End(TagEnd::Link));
-            plain_from = start + len;
-            offset = plain_from;
-        } else {
-            offset = start + 4;
-        }
-        rest = &text[offset..];
-    }
-    if events.is_empty() {
-        return vec![Event::Text(text)];
-    }
-    if plain_from < text.len() {
-        events.push(Event::Text(text[plain_from..].to_string().into()));
-    }
-    events
-}
-
-/// `s`（`http` で始まる）の先頭にある URL の長さ。空白・ASCII 以外・`<>"` で終わり、末尾の句読点は含めない
-fn url_len(s: &str) -> usize {
-    let mut end = s
-        .find(|c: char| !c.is_ascii_graphic() || matches!(c, '<' | '>' | '"' | '`'))
-        .unwrap_or(s.len());
-    loop {
-        let url = &s[..end];
-        let Some(last) = url.chars().last() else {
-            return end;
-        };
-        let unbalanced_close = |close: char, open: char| {
-            last == close && url.matches(close).count() > url.matches(open).count()
-        };
-        if matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '*')
-            || unbalanced_close(')', '(')
-            || unbalanced_close(']', '[')
-            || unbalanced_close('}', '{')
-        {
-            end -= 1;
-        } else {
-            return end;
-        }
-    }
-}
-
-fn is_web_url(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
+    let link = |_kind, url: &str| Href::Url(resolve_link(url, doc));
+    render::markdown(
+        text,
+        &RenderOptions {
+            link: &link,
+            diagrams: !crate::import::is_source_path(doc),
+            id_prefix: "",
+            heading_shift: 0,
+        },
+    )
+    .html
 }
 
 pub fn markdown_page(root: &Path, rel: &Path, text: &str) -> Result<String> {
@@ -775,7 +638,7 @@ mod tests {
             "# 見出し\n\n<script>alert(1)</script>\n\n[x](javascript:alert(1)) [y](https://example.test/a) [z](../a.md)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n",
             Path::new("kb/tech/notes/x.md"),
         );
-        assert!(html.contains("<h1>見出し</h1>"));
+        assert!(html.contains("<h1 id=\"見出し\">見出し</h1>"), "{html}");
         assert!(html.contains("<table>"));
         assert!(!html.contains("<script>"), "{html}");
         assert!(html.contains("&lt;script&gt;"));

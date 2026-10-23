@@ -399,14 +399,8 @@ impl Fts {
     /// 索引を開き、kb/ の変更を反映する。作りが古い・壊れているとき（と `rebuild`）は作り直す。
     /// 別の ika が書き込み中で反映できなかったときは、更新前の索引と None を返す
     fn open(root: &Path, rebuild: bool) -> Result<(Fts, Option<Stats>)> {
-        let cache = root.join(".cache");
-        fs::create_dir_all(&cache)?;
-        // .cache/ の中身は KB の git に入れない（索引は Markdown から作り直せる）
-        let ignore = cache.join(".gitignore");
-        if !ignore.exists() {
-            fs::write(&ignore, "*\n")?;
-        }
-        let dir = cache.join("fts");
+        // 索引は Markdown から作り直せるので、KB の git に入れない置き場に作る
+        let dir = crate::root::cache_dir(root)?.join("fts");
         let manifest_path = dir.join("manifest.json");
         let index_dir = dir.join("index");
 
