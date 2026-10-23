@@ -25,7 +25,7 @@ KB は環境変数 `IKA_HOME` のディレクトリにある。読み書きは `
 2. `ika project show <name> --readme` で概要と関連を読む
 3. テーマを決める
    - 指定があればそれ
-   - 無ければ、`approved` の要件（`ika kb search --type spec --status approved -p <name> -l`）と README の「課題・次の打ち手」から候補を3つまで挙げ、ユーザーに選んでもらう
+   - 無ければ、`approved` の要件（`ika kb search --type spec --status approved -p <name> -l`）と README の「課題・次の打ち手」から候補を3つまで挙げ、ユーザーに選んでもらう。`ika kb stale -p <name>` で古くなっているもの（README がリポジトリより古い・古い価格や競合を根拠にしている決定など）が出ていれば、確かめ直しも候補にしてよい
    - 同じテーマの要件書がすでにあれば新しく作らず、その `status` の段階から再開する
 4. 承認の前に作業ツリーを確かめる: `git status --porcelain` が空でなければ、そこで止まって扱いを聞く（他人の未コミットの変更を巻き込まない）
 

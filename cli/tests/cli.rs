@@ -357,6 +357,144 @@ fn kb_fts_matches_morphemes_and_substrings_and_keeps_the_index_out_of_git() {
     assert_eq!(fts(&["申請を取り下げたい"]), [c]);
 }
 
+#[test]
+fn kb_stale_finds_outdated_readmes_insights_evidence_and_sources() {
+    let f = Fixture::new("stale");
+    // プロダクト foo のリポジトリ。README（2026-10-14）より後にコミットがある
+    let repo = f.dir.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.test"])
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "after readme"]);
+    f.write(
+        "data/projects.csv",
+        &format!(
+            "name,path,url,status,summary\nfoo,{},,active,Foo\nbar,/nowhere/bar,,active,Bar\n",
+            repo.display()
+        ),
+    );
+    f.write(
+        "kb/projects/bar/README.md",
+        "---\ntitle: bar\ntype: project\ndate: 2026-10-14\nprojects: [bar]\ntags: []\n---\n\n# bar\n",
+    );
+
+    let note = |date: &str, tags: &str| {
+        format!(
+            "---\ntitle: n {date}\ntype: note\ndate: {date}\nprojects: [foo]\ntags: [{tags}]\n---\n\n本文\n"
+        )
+    };
+    // 知見（2026-10-01）より新しいノートを取り込んでいない
+    f.write(
+        "kb/tech/notes/2026/2026-09-01-old.md",
+        &note("2026-09-01", "auth"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-05-new.md",
+        &note("2026-10-05", "auth"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-06-other.md",
+        &note("2026-10-06", "infra"),
+    );
+    f.write(
+        "kb/tech/insights/auth.md",
+        "---\ntitle: 認証の知見\ntype: insight\ndate: 2026-10-01\nprojects: [foo]\ntags: [auth]\n---\n\n[根拠](../notes/2026/2026-09-01-old.md)\n",
+    );
+    // 古い価格のノートを、採用済みの決定が根拠にしている（却下した決定は数えない）
+    f.write(
+        "kb/tech/notes/2020/2020-01-01-price.md",
+        &note("2020-01-01", "pricing"),
+    );
+    f.write(
+        "kb/tech/notes/2020/2020-01-02-price.md",
+        &note("2020-01-02", "pricing"),
+    );
+    let decision = |status: &str, target: &str| {
+        format!(
+            "---\ntitle: d\ntype: decision\ndate: 2020-02-01\nprojects: [foo]\ntags: []\nstatus: {status}\n---\n\n[根拠](../notes/2020/{target})\n"
+        )
+    };
+    f.write(
+        "kb/tech/decisions/2020-02-01-a.md",
+        &decision("accepted", "2020-01-01-price.md"),
+    );
+    f.write(
+        "kb/tech/decisions/2020-02-01-b.md",
+        &decision("rejected", "2020-01-02-price.md"),
+    );
+    // 取り込んだ資料: 原本が変わったもの・消えたもの・変わっていないもの
+    let originals = f.dir.join("originals");
+    fs::create_dir_all(&originals).unwrap();
+    for name in ["changed.md", "same.md", "gone.md"] {
+        fs::write(originals.join(name), format!("# {name}\n")).unwrap();
+        let run = f.ika(&[
+            "import",
+            originals.join(name).to_str().unwrap(),
+            "--project",
+            "foo",
+        ]);
+        assert!(run.ok, "{}", run.err);
+    }
+    fs::write(originals.join("changed.md"), "# changed v2\n").unwrap();
+    fs::remove_file(originals.join("gone.md")).unwrap();
+
+    let run = f.ika(&["kb", "stale"]);
+    assert!(run.ok, "{}", run.err);
+    let out = run.out;
+    // 1. README（リポジトリが手元に無い bar は確かめない）
+    assert!(
+        out.contains("foo  README 2026-10-14 · その後のコミット 1 件"),
+        "{out}"
+    );
+    assert!(!out.contains("bar  README"), "{out}");
+    // 2. 知見
+    assert!(
+        out.contains("認証の知見") && out.contains("2026-10-05-new.md"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("2026-10-06-other.md"),
+        "タグが重ならないノートは数えない"
+    );
+    // 3. 古い価格
+    assert!(
+        out.contains("2020-01-01-price.md") && out.contains("2020-02-01-a.md"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("2020-01-02-price.md"),
+        "却下した決定の根拠は数えない"
+    );
+    // 4. 原本
+    assert!(
+        out.contains("原本が変わりました") && out.contains("changed.md"),
+        "{out}"
+    );
+    assert!(
+        out.contains("原本が見当たりません") && out.contains("gone.md"),
+        "{out}"
+    );
+    assert!(!out.contains("same.md"), "{out}");
+
+    // 日数とタグを変えられる。プロダクトで絞れる
+    let narrow = f.ika(&["kb", "stale", "--volatile", "cost", "-p", "bar"]);
+    assert_eq!(
+        narrow.out.trim(),
+        "古くなっていそうなものは見つかりませんでした"
+    );
+}
+
 const LONG_NOTE: &str = "---\ntitle: n\ntype: note\ndate: 2026-10-14\nprojects: [foo]\ntags: [auth]\n---\n\n## 要点\n\n要点の本文\n\n## 詳細\n\n詳細の本文\n\n### 補足\n\n補足の本文\n\n## 詳細\n\n二つ目\n";
 
 #[test]
