@@ -183,7 +183,7 @@ pub fn index(root: &Path, rebuild: bool) -> Result<()> {
 }
 
 /// 一致した行を探すための文字列（検索語そのものと、その形態素の表層形・基本形。1文字の形態素は除く）
-fn needles(terms: &[String]) -> BTreeSet<String> {
+pub(crate) fn needles(terms: &[String]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for term in terms {
         let lower = term.to_lowercase();

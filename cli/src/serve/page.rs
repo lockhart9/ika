@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+use super::highlight;
 use super::http::{Request, percent_decode, percent_encode};
 use crate::kb::{self, fts, search};
 use crate::registry::{self, Project};
@@ -66,6 +67,10 @@ article th { background:var(--soft); text-align:left; white-space:nowrap; }
 article blockquote { margin:1rem 0; padding:0 1rem; color:var(--muted); border-left:4px solid var(--line); }
 article img { max-width:100%; }
 .card { border:1px solid var(--line); border-radius:8px; padding:.6rem 1rem; background:var(--soft); margin:.6rem 0; }
+/* 検索語のハイライト。ダークでも読めるよう文字色も固定する */
+mark { background:#ffe45c; color:#1f1f1f; border-radius:2px; padding:0 .08em; }
+mark#ika-hl { scroll-margin-top:30vh; }
+.hl-note { margin:.4rem 0 0; }
 form.search { display:flex; flex-wrap:wrap; gap:.4rem; margin:.6rem 0 1rem; }
 @media (max-width:40rem) { header .bar { flex-wrap:wrap; } header form { margin-left:0; width:100%; } header input[name=q] { flex:1; } }
 "#;
@@ -368,7 +373,8 @@ pub fn markdown(text: &str, doc: &Path) -> String {
     .html
 }
 
-pub fn markdown_page(root: &Path, rel: &Path, text: &str) -> Result<String> {
+/// `needles` があれば（検索結果から開いたとき）、見出しと本文の一致をハイライトする
+pub fn markdown_page(root: &Path, rel: &Path, text: &str, needles: &[String]) -> Result<String> {
     let fields = frontmatter::parse(text).ok().flatten().unwrap_or_default();
     let field = |key: &str| fields.get(key).cloned().unwrap_or_default();
     let list = |key: &str| {
@@ -403,13 +409,34 @@ pub fn markdown_page(root: &Path, rel: &Path, text: &str) -> Result<String> {
         meta.push(format!("出典: {}", esc(&source)));
     }
 
-    let mut body = format!(
-        "{}<h1>{}</h1><div class=\"meta\">{}</div><article>{}</article>",
-        crumbs(rel),
-        esc(&title),
-        meta.join(" · "),
-        markdown(frontmatter::body(text), rel)
-    );
+    let article = markdown(frontmatter::body(text), rel);
+    let mut body = if needles.is_empty() {
+        format!(
+            "{}<h1>{}</h1><div class=\"meta\">{}</div><article>{article}</article>",
+            crumbs(rel),
+            esc(&title),
+            meta.join(" · "),
+        )
+    } else {
+        let (article, count) = highlight::html(&article, needles);
+        let words: String = needles.iter().map(|n| format!("「{}」", esc(n))).collect();
+        let note = if count == 0 {
+            format!("{words}は本文に見つかりません（フロントマターで当たった可能性があります）")
+        } else {
+            format!(
+                "{words}を <a href=\"#{}\">{count} か所</a>ハイライト",
+                highlight::ANCHOR
+            )
+        };
+        format!(
+            "{}<h1>{}</h1><div class=\"meta\">{}</div>\
+             <div class=\"meta hl-note\">{note} · <a href=\"{}\">消す</a></div><article>{article}</article>",
+            crumbs(rel),
+            highlight::text(&title, needles),
+            meta.join(" · "),
+            kb_url(rel),
+        )
+    };
 
     let referrers = kb::inbound(root, rel)?;
     if !referrers.is_empty() {
@@ -540,6 +567,22 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
         return Ok(layout("検索", "", &body));
     }
     let terms: Vec<String> = q.split_whitespace().map(String::from).collect();
+    // ハイライトする語。全文検索は一致行の選び方（fts::needles）にそろえ、形態素の表層形・基本形も含める
+    let needles: Vec<String> = if exact {
+        terms.iter().map(|t| t.to_lowercase()).collect()
+    } else {
+        fts::needles(&terms).into_iter().collect()
+    };
+    // 結果から開くページにも語を渡し、最初の一致まで送る
+    let hl_suffix = if needles.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "?hl={}#{}",
+            percent_encode(&needles.join(" ")),
+            highlight::ANCHOR
+        )
+    };
     let domain = Some(domain).filter(|v| !v.is_empty());
     let project = Some(project).filter(|v| !v.is_empty());
     let tag = Some(tag).filter(|v| !v.is_empty());
@@ -552,18 +595,18 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
             .map(|d| d.title.clone())
             .unwrap_or_else(|| rel.to_string_lossy().into());
         let mut out = format!(
-            "<li><span class=\"badge\">{}</span><a href=\"{}\">{}</a> <span class=\"muted\">{}</span><span class=\"path\">{}</span>",
+            "<li><span class=\"badge\">{}</span><a href=\"{}{}\">{}</a> <span class=\"muted\">{}</span><span class=\"path\">{}</span>",
             esc(label),
             kb_url(rel),
-            esc(&title),
+            esc(&hl_suffix),
+            highlight::text(&title, &needles),
             esc(date),
             esc(&rel.to_string_lossy())
         );
         for (n, line) in lines.iter().take(3) {
-            let short: String = line.chars().take(200).collect();
             out.push_str(&format!(
                 "<div class=\"snippet\">{n}: {}</div>",
-                esc(&short)
+                highlight::snippet(line, &needles, 200)
             ));
         }
         out.push_str("</li>");
