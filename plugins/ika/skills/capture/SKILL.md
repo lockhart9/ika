@@ -37,7 +37,7 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
    - 日付は絶対日付。未確認のことは「未確認」と書く
 6. `ika kb` は書き込み後に指摘（フロントマター・リンク切れ）を表示するので直す。最後に `ika check` を通す（CLI が無ければフロントマターを目視で確認）
 7. 関連する `kb/projects/<name>/README.md` の「関連」（ビジネス／技術）や `insights/` に影響があれば追記を提案する
-8. note を書いたら `ika kb orphans -p <name>` を実行する。「要整理」（3件以上）が出ていれば、[references/distill.md](references/distill.md) の手順で insight への蒸留をユーザーに提案する（押し付けず、断られたらそのまま）
+8. note を書いたら `ika kb orphans -p <name>` を実行する。「要整理」（3件以上）が出ていれば、[references/distill.md](references/distill.md) の手順で insight への蒸留をユーザーに提案する（押し付けず、断られたらそのまま）。続けて `ika kb stale -p <name>` を実行し、今書いたノートより前の知見が「新しいノートを取り込んでいない知見」に出ていれば、その知見の更新も同じ手順で提案する（`unrecognized subcommand` と出る古い ika では飛ばす）
 
 ## しないこと
 

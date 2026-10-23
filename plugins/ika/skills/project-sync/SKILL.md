@@ -12,7 +12,7 @@ KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレク
 
 ## 手順
 
-1. 対象を決める（指定がなければ `status` が `active` のもの全部）
+1. 対象を決める（指定がなければ `status` が `active` のもの全部）。棚卸しのときは先に `ika kb stale` を実行する。「README がリポジトリより古い」に出たプロダクト（README の日付より後にコミットがあるもの）を優先し、出なかったものは動きが無いので飛ばしてよい（`unrecognized subcommand` と出る古い ika では全部を対象にする）
 2. リポジトリを読む（書き換えない）
    - `README.md`、`CLAUDE.md` / `.claude/CLAUDE.md`、`AGENTS.md`、`docs/`
    - `git -C <path> log --since=<前回の date> --oneline` で前回更新以降の動き
@@ -26,4 +26,5 @@ KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレク
    - フロントマターの `date` を今日にする
 5. URL や一行説明が変わっていたら `ika project set <name> --url ... --summary ...` で `data/projects.csv` を直す（CSV を直接編集しない）
 6. 複数プロダクトに共通する気づきがあれば `capture` スキルで insight を提案する（同じ技術課題・運用の手間 → `tech`、同じ集客・収益の課題 → `business`）
+   `ika kb stale -p <name>` に、古い価格・競合などを根拠にした README・知見・決定が出ていれば、確かめ直すかをユーザーに聞く（確かめ直すなら `capture` で新しいノートにして根拠を差し替える。勝手に書き換えない）
 7. `ika check` を通し、更新内容を要約して報告する
