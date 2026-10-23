@@ -14,6 +14,7 @@ use anyhow::{Context, Result};
 use crate::kb;
 
 mod datasets;
+mod highlight;
 mod http;
 mod page;
 mod tags;
@@ -107,7 +108,7 @@ fn route(root: &Path, request: &Request) -> Result<Response> {
         "/" => html(page::index(root)?),
         "/search" => html(page::search_page(root, request)?),
         "/tags" | "/tags/" => html(tags::index(root, request)?),
-        "/kb" => kb_page(root, "kb")?,
+        "/kb" => kb_page(root, "kb", request)?,
         _ => {
             if let Some(name) = path.strip_prefix("/data/") {
                 match datasets::page(root, name.trim_end_matches('/'))? {
@@ -125,7 +126,7 @@ fn route(root: &Path, request: &Request) -> Result<Response> {
                     None => error(404, "そのプロダクトは登録されていません"),
                 }
             } else if let Some(rest) = path.strip_prefix("/kb/") {
-                kb_page(root, &format!("kb/{}", rest.trim_end_matches('/')))?
+                kb_page(root, &format!("kb/{}", rest.trim_end_matches('/')), request)?
             } else {
                 error(404, "ページがありません")
             }
@@ -133,8 +134,8 @@ fn route(root: &Path, request: &Request) -> Result<Response> {
     })
 }
 
-/// `kb/...` のディレクトリ・Markdown・画像
-fn kb_page(root: &Path, requested: &str) -> Result<Response> {
+/// `kb/...` のディレクトリ・Markdown・画像。Markdown は `?hl=` の語をハイライトする
+fn kb_page(root: &Path, requested: &str, request: &Request) -> Result<Response> {
     let Ok(rel) = kb::resolve(root, requested) else {
         return Ok(error(400, "不正なパスです"));
     };
@@ -162,7 +163,8 @@ fn kb_page(root: &Path, requested: &str) -> Result<Response> {
     Ok(match (ext.as_str(), image) {
         ("md", _) => {
             let text = std::fs::read_to_string(&abs)?;
-            Response::html(200, page::markdown_page(root, &rel, &text)?)
+            let needles = highlight::parse(request.param("hl"));
+            Response::html(200, page::markdown_page(root, &rel, &text, &needles)?)
         }
         (_, Some(content_type)) => Response::bytes(content_type, std::fs::read(&abs)?),
         _ => error(
