@@ -1120,7 +1120,6 @@ dependencies = [
  "csv",
  "htmd",
  "ika-diagram",
- "libc",
  "lindera",
  "lopdf",
  "pdf-extract",

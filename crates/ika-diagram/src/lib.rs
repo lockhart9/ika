@@ -4,6 +4,8 @@
 //! 依存なし・入出力なし。色とフォントは CSS の変数で受け取る（[`CSS`] の `:root` が既定値で、
 //! ページ側で上書きできる）。JavaScript は使わない。
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 
 mod class;

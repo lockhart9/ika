@@ -1,3 +1,9 @@
+#![forbid(unsafe_code)]
+
+// マクロ（println!・print!）を使う側のモジュールより先に置く
+#[macro_use]
+mod out;
+
 mod check;
 mod data;
 mod domain;
@@ -70,21 +76,11 @@ enum Command {
     Install(install::Args),
 }
 
-/// `ika ... | head` のようにパイプが先に閉じられても、panic せず静かに終わる
-/// （Rust は SIGPIPE を無視する設定で起動するので、既定の動作に戻す）
-#[cfg(unix)]
-fn restore_sigpipe() {
-    // SAFETY: シグナルの既定動作に戻すだけで、ほかのスレッドも状態も持たない起動直後に呼ぶ
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
-}
-
 fn main() -> ExitCode {
-    #[cfg(unix)]
-    restore_sigpipe();
     match run() {
         Ok(code) => code,
+        // `ika ... | head` のようにパイプが先に閉じられたときは静かに終わる（`out.rs`）
+        Err(err) if out::is_broken_pipe(&err) => ExitCode::from(out::BROKEN_PIPE_EXIT),
         Err(err) => {
             eprintln!("error: {err:#}");
             ExitCode::FAILURE

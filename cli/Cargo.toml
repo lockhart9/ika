@@ -29,9 +29,6 @@ sha2 = "0.11.1"
 tantivy = "0.27.0"
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 
-[target.'cfg(unix)'.dependencies]
-libc = "0.2.190"
-
 [dev-dependencies]
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rust_xlsxwriter = "0.100.0"
