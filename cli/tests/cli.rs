@@ -246,6 +246,28 @@ fn append_adds_to_the_end() {
 }
 
 #[test]
+fn closed_stdout_pipe_ends_quietly() {
+    let f = Fixture::new("closed-pipe");
+    let path = "kb/tech/notes/2026/2026-10-14-big.md";
+    // パイプのバッファより大きくして、読み手が閉じたあとにも書き続けるようにする
+    f.write(path, &format!("{NOTE}{}", "あいうえお\n".repeat(50_000)));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ika"))
+        .args(["kb", "cat", path])
+        .env("IKA_HOME", f.root())
+        .env("HOME", &f.dir)
+        .current_dir(f.dir.join("work"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // `ika ... | head` と同じ。何も読まずに閉じる
+    drop(child.stdout.take());
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(141));
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+}
+
+#[test]
 fn cat_ls_and_search_work_from_outside() {
     let f = Fixture::new("read");
     f.write("kb/tech/notes/2026/2026-10-14-a.md", NOTE);
@@ -1333,7 +1355,7 @@ impl Fixture {
             .spawn()
             .unwrap();
         let mut first = String::new();
-        // stdout は Child に持たせたままにする。閉じると、サーバーが続きの行を出すときに SIGPIPE で死ぬ
+        // stdout は Child に持たせたままにする。閉じると、サーバーが続きの行を出すときに BrokenPipe で終わる
         BufReader::new(child.stdout.as_mut().unwrap())
             .read_line(&mut first)
             .unwrap();
