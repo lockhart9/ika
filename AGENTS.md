@@ -56,11 +56,12 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 - Markdown は先頭にフロントマターを付ける（書式は `docs/kb-format.md`）。書いたら `ika check` で検証する
 - ビジネス・ドメイン知識と技術は領域（`kb/business/` と `kb/tech/`）を分けて置く。迷ったら「何の判断に使うか」で決め、もう一方からリンクする（`docs/kb-format.md`）
 - 「プロダクト」はコードのあるサービスに限らず、事業・副業の検討も含む（その場合 `path` は空）。プロダクト名は `data/projects.csv` の `name` と一致させる。新しいプロダクトは `ika project add` で登録する（手で増やすなら CSV の行と `kb/projects/<name>/README.md` を両方作る）
-- 事実と意見を分ける。出典がある情報は `source:` にURLを書き、本文でも引用元を示す
+- 事実と意見を分ける。出典がある情報は `source:` にURLを書き、本文でも引用元を示す（KB の中の話。製品のコード・ドキュメントでは一次情報の URL だけを書き、KB を出典にしない）
 - 日付は絶対日付（`2026-10-14`）で書く。「先週」「最近」は使わない
 - ユーザーの判断が未確定のものは「案」「未決定」と明記し、決定事項として書かない
 - 既存のノートがあれば新規作成より更新を優先する（特に `insights/` と `kb/projects/`）
 - 各サービスのリポジトリ（`data/projects.csv` の `path`）は読むだけにし、このリポジトリから書き換えない
+- 製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。ika を使う人と使わない人が同じリポジトリで開発するため。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・ブランチ名・PR に、ika・KB・`kb/` のパス・要件書・要件 ID を書かない。書き換え方と点検は `plugins/ika/skills/cycle/references/product-repo.md`
 - KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/datasets.sqlite3` も `sqlite3` コマンドなどで直接触らない（外部プロジェクトの作業中も、このリポジトリの中でも同じ）。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
 
 ## 外部のドキュメントを取り込むとき

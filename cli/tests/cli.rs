@@ -3726,3 +3726,68 @@ fn default_outputs_stay_small() {
     let show = f.ika(&["project", "show", "foo"]);
     assert!(show.out.len() <= 8_000, "{} bytes", show.out.len());
 }
+
+/// リポジトリにあるプラグインのファイル
+fn plugin_file(rel: &str) -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/ika")
+        .join(rel);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// SKILL.md のフロントマターの description
+fn skill_description(text: &str) -> &str {
+    text.lines()
+        .find_map(|l| l.strip_prefix("description: "))
+        .expect("description がある")
+}
+
+#[test]
+fn skills_keep_ika_out_of_product_repos() {
+    // ika を使わない人も同じリポジトリで開発するので、どのスキルも製品リポジトリに ika・KB の痕跡を残さない
+    const RULE: &str = "製品リポジトリには ika・KB への言及を書かない";
+    for skill in [
+        "cycle",
+        "search",
+        "capture",
+        "decide",
+        "import",
+        "project-sync",
+        "project-add",
+    ] {
+        let text = plugin_file(&format!("skills/{skill}/SKILL.md"));
+        assert!(text.contains(RULE), "{skill} に規則がない");
+    }
+
+    let cycle = plugin_file("skills/cycle/SKILL.md");
+    assert!(
+        !cycle.contains("Spec: kb/"),
+        "コミットに要件書のパスを書かせない"
+    );
+    assert!(cycle.contains("references/product-repo.md"));
+
+    // スキルを呼ばずに ika を使う作業でも見えるよう、常に読み込まれる description に入れる
+    let search = plugin_file("skills/search/SKILL.md");
+    let description = skill_description(&search);
+    assert!(
+        description.contains("ika・KB への言及を書かない"),
+        "{description}"
+    );
+    assert!(description.chars().count() <= 1024);
+
+    let guide = plugin_file("skills/cycle/references/product-repo.md");
+    assert!(
+        guide.contains("git diff --cached"),
+        "ステージした差分の点検"
+    );
+    assert!(guide.contains("一次情報"), "出典は一次情報だけ");
+    assert!(guide.contains("ika 自身のリポジトリ"), "例外");
+
+    // 「出典を示す」は KB の中の話で、製品では KB を出典にしない
+    for text in [
+        plugin_file("skills/capture/SKILL.md"),
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../AGENTS.md")).unwrap(),
+    ] {
+        assert!(text.contains("KB を出典にしない"));
+    }
+}

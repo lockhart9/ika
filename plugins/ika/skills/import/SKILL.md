@@ -9,6 +9,7 @@ compatibility: ika CLI が必要（変換は ika import が行い、外部ツー
 外部のドキュメントを `ika import` で Markdown にし、全文を KB に置く。原本が Drive や Notion にあっても、どのクライアント（Codex・ChatGPT を含む）からも同じ内容を読めるようにするため。全文は原本の写しで、判断に使う要点は README・要件書・ノートに書き起こしてリンクする。
 
 KB は環境変数 `IKA_HOME` のディレクトリにある。読み書きは `ika` CLI だけで行い、KB のファイルを直接 Read/Write/rg しない。書式は [references/kb-format.md](references/kb-format.md)。原本の取り方は [references/sources.md](references/sources.md)。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
 
 取り込んだ資料は `type: source` で、次のどちらかに置かれる。
 

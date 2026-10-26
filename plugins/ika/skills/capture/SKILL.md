@@ -7,6 +7,7 @@ compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書�
 # capture: ナレッジを記録する
 
 KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。構成・フロントマター・領域の振り分けは [references/kb-format.md](references/kb-format.md)、ひな形は [assets/note.md](assets/note.md) と [assets/insight.md](assets/insight.md)。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
 KB にアクセスできない環境（claude.ai・ChatGPT web など）では、保存先のパスとフロントマター付きの本文を出力し、ユーザーに保存してもらう。
 
 ## 手順
@@ -34,7 +35,7 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
    CLI が無ければ `assets/` のひな形をコピーし、[references/kb-format.md](references/kb-format.md) のパス規則で作る
 5. 本文を書く（`--stdin` で渡していればここまでで済んでいる）
    - 冒頭の「要点」は3行以内で、後から読んだ自分が判断に使える形にする
-   - 出典URLは `source:` と本文の両方に書く。引用と自分の解釈を分ける
+   - 出典URLは `source:` と本文の両方に書く。引用と自分の解釈を分ける（KB のノートの話。製品のコード・ドキュメントでは一次情報の URL だけを書き、KB を出典にしない）
    - 日付は絶対日付。未確認のことは「未確認」と書く
    - 流れ・構成・データの形・経緯・案の比較は図にすると速く伝わる。[references/kb-format.md](references/kb-format.md) の「図」の記法（` ```seq `・` ```flow ` など）で書く。Mermaid は使わない
 6. `ika kb` は書き込み後に指摘（フロントマター・リンク切れ・図の記法の誤り）を表示するので直す。最後に `ika check` を通す。「注意」に今書いたノート（どこからもリンクされていない）が出ていれば、insight・決定・README の「関連」からリンクを張る（CLI が無ければフロントマターを目視で確認）
