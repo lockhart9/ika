@@ -623,6 +623,7 @@ pub fn search_page(root: &Path, req: &Request) -> Result<String> {
             status: None,
             any,
             files: false,
+            limit: None,
         };
         let hits = search::find(root, &args)?;
         body.push_str(&format!(
