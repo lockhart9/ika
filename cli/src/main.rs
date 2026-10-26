@@ -76,7 +76,7 @@ enum Command {
     Import(import::Args),
     /// フロントマター・登録簿・リンク・プラグインを検証する
     Check,
-    /// 正本（docs/kb-format.md・templates/）をプラグインのスキルにコピーする
+    /// 正本（docs/kb-format.md・docs/diagrams.md・templates/）をプラグインのスキルにコピーする
     Sync,
     /// 各クライアント向けに dist/ へ書き出す。html は KB のページを図と表の入った単独の HTML にする
     Export(export::Args),
@@ -118,4 +118,44 @@ fn run() -> anyhow::Result<ExitCode> {
         Command::Install(args) => install::run(&root::repo()?, args)?,
     }
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    /// `ika kb ls` のような、全サブコマンドの呼び出し方（入れ子も。help を除く）
+    fn command_paths(cmd: &clap::Command, prefix: &str, paths: &mut Vec<String>) {
+        for sub in cmd.get_subcommands() {
+            if sub.get_name() == "help" {
+                continue;
+            }
+            let path = format!("{prefix} {}", sub.get_name());
+            paths.push(path.clone());
+            command_paths(sub, &path, paths);
+        }
+    }
+
+    #[test]
+    fn cli_reference_lists_every_subcommand() {
+        let doc = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/cli.md"),
+        )
+        .unwrap();
+        let mut paths = Vec::new();
+        command_paths(&Cli::command(), "ika", &mut paths);
+        assert!(paths.len() > 20, "{paths:?}");
+        let missing: Vec<_> = paths
+            .iter()
+            .filter(|p| {
+                !doc.lines()
+                    .any(|l| l == p.as_str() || l.starts_with(&format!("{p} ")))
+            })
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "docs/cli.md に行の頭で載っていないコマンド: {missing:?}"
+        );
+    }
 }

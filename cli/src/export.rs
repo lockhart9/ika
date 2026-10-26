@@ -115,7 +115,7 @@ fn claude(root: &Path, kb: Option<&Scope>) -> Result<()> {
         return Ok(());
     };
     let home = roots::data_dir()?;
-    let mut instructions = fs::read_to_string(root.join("AGENTS.md"))?;
+    let mut instructions = client_instructions(root)?;
     instructions.push_str(
         "\n## claude.ai での使い方\n\n\
          - ここでは `ika` CLI とローカルのファイルは使えない。ナレッジはプロジェクトの知識ファイルの `knowledge-<領域>.md`（領域ごと）、\
@@ -131,6 +131,51 @@ fn claude(root: &Path, kb: Option<&Scope>) -> Result<()> {
         "\n注意: KB の内容（上の knowledge-*.md と CSV）を含みます。上げる先（claude.ai のプロジェクト）に渡してよい範囲か確かめてください"
     );
     Ok(())
+}
+
+/// claude.ai・ChatGPT に渡す指示。AGENTS.md から、ika のリポジトリの中でだけ要る節を除く
+fn client_instructions(root: &Path) -> Result<String> {
+    let text = fs::read_to_string(root.join("AGENTS.md"))?;
+    strip_repo_only(&text).context("AGENTS.md")
+}
+
+const REPO_ONLY_OPEN: &str = "<!-- repo-only";
+const REPO_ONLY_CLOSE: &str = "<!-- /repo-only -->";
+
+/// `<!-- repo-only ... -->` の行から `<!-- /repo-only -->` の行までを除く（入れ子にはしない）
+fn strip_repo_only(text: &str) -> Result<String> {
+    let mut out = String::new();
+    let mut open: Option<usize> = None;
+    for (i, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == REPO_ONLY_CLOSE {
+            if open.take().is_none() {
+                bail!(
+                    "{} 行目の {REPO_ONLY_CLOSE} に対応する開始の印がありません",
+                    i + 1
+                );
+            }
+        } else if trimmed.starts_with(REPO_ONLY_OPEN) {
+            if let Some(start) = open {
+                bail!(
+                    "{start} 行目の repo-only が閉じる前に、{} 行目で開いています",
+                    i + 1
+                );
+            }
+            open = Some(i + 1);
+        } else if open.is_none() {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if let Some(start) = open {
+        bail!("{start} 行目の repo-only が閉じていません（{REPO_ONLY_CLOSE}）");
+    }
+    // 除いた跡の空行を1つにまとめる
+    while out.contains("\n\n\n") {
+        out = out.replace("\n\n\n", "\n\n");
+    }
+    Ok(out.trim_end().to_string() + "\n")
 }
 
 fn add_dir(zip: &mut ZipWriter<File>, dir: &Path, prefix: &str) -> Result<()> {
@@ -161,12 +206,12 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
     let home = roots::data_dir()?;
 
     // 指示欄は短く保ち（上限は非公開。目安 5,000 字）、スキル本文と書式はプロジェクトファイルに回す
-    let mut instructions = fs::read_to_string(root.join("AGENTS.md"))?;
+    let mut instructions = client_instructions(root)?;
     instructions.push_str(
         "\n## ChatGPT での使い方\n\n\
          - ナレッジはプロジェクトファイルの `knowledge-<領域>.md`（領域ごと）、`knowledge-projects.md`（プロダクト概要）、\
          `projects.csv`・`domains.csv` にある。各ノートの先頭の `<!-- path: ... -->` が元のパス\n\
-         - 書式（`references/kb-format.md`）とスキルの手順は `skills.md` にある。依頼が下のスキルに当てはまったら、`skills.md` の該当節に従う\n\
+         - 書式（`references/kb-format.md`）・図の記法（`references/diagrams.md`）とスキルの手順は `skills.md` にある。依頼が下のスキルに当てはまったら、`skills.md` の該当節に従う\n\
          - CLI とファイル書き込みは使えない。記録を頼まれたら保存先のパスとフロントマター付きの本文を出力する\n\n\
          ## スキル\n\n",
     );
@@ -174,6 +219,10 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
         String::from("# ika スキルと書式\n\n## 書式（references/kb-format.md）\n\n");
     skills_md.push_str(frontmatter::body(&fs::read_to_string(
         root.join("docs/kb-format.md"),
+    )?));
+    skills_md.push_str("\n\n---\n\n## 図の記法（references/diagrams.md）\n\n");
+    skills_md.push_str(frontmatter::body(&fs::read_to_string(
+        root.join("docs/diagrams.md"),
     )?));
     for dir in skills::dirs(root)? {
         let text = fs::read_to_string(dir.join("SKILL.md"))?;
@@ -272,4 +321,50 @@ fn remove_knowledge(out: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_only_sections_are_left_out() {
+        let text = "# 指示\n\n## 守ること\n\n- A\n\n<!-- repo-only: 説明 -->\n\n## 開発\n\n- B\n<!-- /repo-only -->\n\n## 探すとき\n\n- C\n";
+        let out = strip_repo_only(text).unwrap();
+        assert_eq!(out, "# 指示\n\n## 守ること\n\n- A\n\n## 探すとき\n\n- C\n");
+    }
+
+    #[test]
+    fn broken_repo_only_markers_are_errors() {
+        for text in [
+            "a\n<!-- repo-only -->\nb\n",
+            "a\n<!-- /repo-only -->\nb\n",
+            "<!-- repo-only -->\n<!-- repo-only -->\n<!-- /repo-only -->\n",
+        ] {
+            assert!(strip_repo_only(text).is_err(), "{text}");
+        }
+        assert_eq!(strip_repo_only("印なし\n").unwrap(), "印なし\n");
+    }
+
+    #[test]
+    fn real_agents_md_keeps_rules_and_drops_repo_sections() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let out = client_instructions(&root).unwrap();
+        for kept in [
+            "## 守ること",
+            "## ナレッジを探すとき",
+            "### ナレッジのデータ",
+        ] {
+            assert!(out.contains(kept), "{kept}");
+        }
+        for dropped in [
+            "## CLI",
+            "## 開発",
+            "## スキルを足す・直すとき",
+            "### このリポジトリ",
+            "repo-only",
+        ] {
+            assert!(!out.contains(dropped), "{dropped}");
+        }
+    }
 }
