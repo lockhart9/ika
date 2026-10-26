@@ -39,6 +39,9 @@ pub enum Command {
         /// README の本文も表示する
         #[arg(long)]
         readme: bool,
+        /// 関連の一覧に表示する件数（既定は 20。0 で無制限）
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
     },
     /// 登録済みプロダクトの項目を書き換える（指定した項目だけ）
     Set {
@@ -79,7 +82,11 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
             };
             add(root, &project)
         }
-        Command::Show { name, readme } => show(root, &name, readme),
+        Command::Show {
+            name,
+            readme,
+            limit,
+        } => show(root, &name, readme, limit),
         Command::Set {
             name,
             path,
@@ -147,7 +154,10 @@ pub fn related(root: &Path, name: &str) -> Result<Vec<Related>> {
     Ok(related)
 }
 
-fn show(root: &Path, name: &str, with_readme: bool) -> Result<()> {
+/// 関連の一覧に表示する件数の既定
+const RELATED_LIMIT: usize = 20;
+
+fn show(root: &Path, name: &str, with_readme: bool, limit: Option<usize>) -> Result<()> {
     let projects = registry::projects(root)?;
     let Some(project) = projects.iter().find(|p| p.name == name) else {
         bail!("未登録のプロダクトです: {name}（`ika project list` で確認してください）");
@@ -166,7 +176,12 @@ fn show(root: &Path, name: &str, with_readme: bool) -> Result<()> {
 
     let related = related(root, name)?;
     println!("\n関連（{} 件）", related.len());
-    for item in &related {
+    let limit = match limit {
+        Some(0) => related.len(),
+        Some(n) => n,
+        None => RELATED_LIMIT,
+    };
+    for item in related.iter().take(limit) {
         let status = if item.status.is_empty() {
             String::new()
         } else {
@@ -179,6 +194,9 @@ fn show(root: &Path, name: &str, with_readme: bool) -> Result<()> {
             item.title,
             item.rel.display()
         );
+    }
+    if related.len() > limit {
+        println!("  …ほか {} 件（-n で増やせる）", related.len() - limit);
     }
 
     if with_readme {

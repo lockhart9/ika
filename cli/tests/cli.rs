@@ -3568,3 +3568,161 @@ fn serve_renders_diagrams_without_allowing_scripts() {
         source.body
     );
 }
+
+/// 語「共通語」がすべてのファイルに当たる KB。ノート `notes` 件と資料 `sources` 件。
+/// どのファイルにも、語が 600 字目にある長い行（先頭）と、短い一致行 9 行がある
+fn crowded(name: &str, notes: usize, sources: usize) -> Fixture {
+    let f = Fixture::new(name);
+    let doc = |kind: &str, i: usize| {
+        let mut text = format!(
+            "---\ntitle: t{i}\ntype: {kind}\ndate: 2026-10-{:02}\nprojects: [foo]\ntags: []\n---\n\n",
+            1 + i % 28
+        );
+        text.push_str(&format!("{}共通語{}\n", "あ".repeat(600), "い".repeat(400)));
+        for j in 0..9 {
+            text.push_str(&format!("共通語を含む行 {i}-{j}\n"));
+        }
+        text
+    };
+    for i in 0..notes {
+        f.write(
+            &format!("kb/tech/notes/2026/2026-10-01-n{i:02}.md"),
+            &doc("note", i),
+        );
+    }
+    for i in 0..sources {
+        f.write(
+            &format!("kb/projects/foo/sources/s{i:02}.md"),
+            &doc("source", i),
+        );
+    }
+    f
+}
+
+fn file_lines(out: &str) -> Vec<&str> {
+    out.lines().filter(|l| !l.starts_with(' ')).collect()
+}
+
+#[test]
+fn search_caps_files_lines_and_line_length() {
+    let f = crowded("search-caps", 35, 20);
+
+    let run = f.ika(&["kb", "search", "共通語"]);
+    assert!(run.ok, "{}", run.err);
+    assert_eq!(file_lines(&run.out).len(), 20, "{}", run.out);
+    assert!(
+        run.err.contains("55 件（上位 20 件を表示。-n で増やせる）"),
+        "{}",
+        run.err
+    );
+    // 1 ファイル 3 行まで。残りは件数で知らせる
+    assert_eq!(run.out.matches("  …ほか 7 行").count(), 20, "{}", run.out);
+    assert_eq!(
+        run.out
+            .lines()
+            .filter(|l| l.starts_with("  ") && l.contains(": "))
+            .count(),
+        60
+    );
+    // 長い行は語を残して切る
+    let long = run.out.lines().find(|l| l.contains("あ")).unwrap();
+    assert!(long.contains("共通語") && long.contains('…'), "{long}");
+    assert!(long.chars().count() < 180, "{}", long.chars().count());
+
+    let five = f.ika(&["kb", "search", "共通語", "-n", "5", "-l"]);
+    assert_eq!(five.out.lines().count(), 5, "{}", five.out);
+    assert!(five.err.contains("55 件（上位 5 件を表示"), "{}", five.err);
+
+    // -l は既定で 50 件まで、-n 0 なら無制限
+    let names = f.ika(&["kb", "search", "共通語", "-l"]);
+    assert_eq!(names.out.lines().count(), 50, "{}", names.out);
+    let all = f.ika(&["kb", "search", "共通語", "-n", "0"]);
+    assert_eq!(file_lines(&all.out).len(), 55);
+    assert_eq!(all.err.trim(), "55 件");
+}
+
+#[test]
+fn search_without_terms_lists_up_to_fifty_files() {
+    // 検索語がなければ一致行は出ず、1 件が短いので -l と同じ上限にする
+    let f = crowded("search-no-terms", 55, 0);
+    let run = f.ika(&["kb", "search", "-p", "foo"]);
+    assert_eq!(file_lines(&run.out).len(), 50, "{}", run.out);
+    assert!(run.err.contains("上位 50 件"), "{}", run.err);
+}
+
+#[test]
+fn search_keeps_imported_sources() {
+    let f = crowded("search-sources", 2, 2);
+    let run = f.ika(&["kb", "search", "共通語", "-l"]);
+    assert_eq!(run.out.lines().count(), 4, "{}", run.out);
+    assert!(run.out.contains("kb/projects/foo/sources/s00.md"));
+    let detailed = f.ika(&["kb", "search", "共通語", "--type", "source"]);
+    assert_eq!(file_lines(&detailed.out).len(), 2, "{}", detailed.out);
+    // 資料の一致行も 3 行まで
+    assert_eq!(detailed.out.matches("  …ほか 7 行").count(), 2);
+}
+
+#[test]
+fn cat_shows_only_the_outline_for_large_files() {
+    let f = Fixture::new("cat-large");
+    let line = "あ".repeat(100);
+    let text = |n: usize| {
+        format!(
+            "---\ntitle: n\ntype: note\ndate: 2026-10-14\nprojects: [foo]\ntags: []\n---\n\n## 要点\n\n{}\n\n## 詳細\n\n詳細の本文\n",
+            vec![line.as_str(); n].join("\n")
+        )
+    };
+    let big = "kb/tech/notes/2026/2026-10-14-big.md";
+    f.write(big, &text(90));
+    let small = "kb/tech/notes/2026/2026-10-14-small.md";
+    f.write(small, &text(70));
+
+    let default = f.ika(&["kb", "cat", big]);
+    assert!(default.ok, "{}", default.err);
+    assert_eq!(default.out, f.ika(&["kb", "cat", big, "--outline"]).out);
+    assert!(
+        default.err.contains("大きいファイル") && default.err.contains("--full"),
+        "{}",
+        default.err
+    );
+    assert!(default.out.len() * 2 < f.read(big).len());
+
+    assert_eq!(f.ika(&["kb", "cat", big, "--full"]).out, f.read(big));
+    assert!(
+        f.ika(&["kb", "cat", big, "--section", "詳細"])
+            .out
+            .contains("詳細の本文")
+    );
+    assert_eq!(f.ika(&["kb", "cat", small]).out, f.read(small));
+    assert!(f.ika(&["kb", "cat", small]).err.is_empty());
+    assert!(!f.ika(&["kb", "cat", big, "--full", "--outline"]).ok);
+}
+
+#[test]
+fn project_show_caps_the_related_list() {
+    let f = crowded("show-caps", 25, 0);
+    let run = f.ika(&["project", "show", "foo"]);
+    assert!(run.ok, "{}", run.err);
+    assert!(run.out.contains("関連（25 件）"), "{}", run.out);
+    assert_eq!(run.out.matches("      kb/").count(), 20, "{}", run.out);
+    assert!(run.out.contains("…ほか 5 件（-n で増やせる）"));
+
+    let all = f.ika(&["project", "show", "foo", "-n", "0"]);
+    assert_eq!(all.out.matches("      kb/").count(), 25);
+    assert!(!all.out.contains("…ほか"));
+    let two = f.ika(&["project", "show", "foo", "-n", "2", "--readme"]);
+    assert_eq!(two.out.matches("      kb/").count(), 2);
+    assert!(two.out.contains("# foo"), "--readme の本文は全文のまま");
+}
+
+#[test]
+fn default_outputs_stay_small() {
+    // 回帰防止: 一般的な語でも、既定の出力がトークンを食いすぎない
+    let f = crowded("output-size", 40, 20);
+    let search = f.ika(&["kb", "search", "共通語"]);
+    assert!(search.out.len() <= 20_000, "{} bytes", search.out.len());
+    let names = f.ika(&["kb", "search", "共通語", "-l"]);
+    assert!(names.out.len() <= 5_000, "{} bytes", names.out.len());
+    let show = f.ika(&["project", "show", "foo"]);
+    assert!(show.out.len() <= 8_000, "{} bytes", show.out.len());
+}

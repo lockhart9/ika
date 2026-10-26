@@ -21,12 +21,13 @@ KB にアクセスできない環境では、プロジェクトに上げられ�
    ika kb search --type decision --status accepted -l   # 有効な決定
    ika kb search --type spec -p <name> -l            # 要件書（status: draft 承認待ち / approved / done 実装済み / dropped）
    ika kb search --type source -p <name> -l          # 取り込んだ外部の資料の全文（仕様書・Drive・Notion など。原本は source:）
-   ika kb cat kb/tech/decisions/<file>.md            # 全文を読む
+   ika kb cat kb/tech/decisions/<file>.md            # 全文を読む（8000字を超えるファイルは見出し一覧だけ出る。全文は --full）
    ika kb cat <path> --outline                       # 長いファイルは先に見出し一覧（各節の行範囲・文字数つき）を見る
    ika kb cat <path> --section "技術"                # 必要な節だけ読む（同名の見出しがあれば "## 技術" と階層を付ける）
    ika kb cat <path> --lines 40:80                   # grep -n で見つけた行の周辺だけ読む（--frontmatter でフロントマターのみ）
    ika kb grep -n -C2 'review|レビュー' kb/tech           # 正規表現・前後の行など自由に探す。中身は ripgrep（オプションは許可されたものだけ）
    ```
+   `ika kb search` は既定で20ファイル（`-l` と検索語なしは50）・1ファイル3行までに絞る。標準エラーに「N 件（上位 M 件を表示）」と出たら、後ろが切れている。`-p`・`-d`・`--type`・`-t` で絞るか、`-n` を増やす（`-n 0` で全件）。「KBに記録なし」と答えるのは、切れていないことを確かめてから
    `ika kb search` で足りない探し方（正規表現、前後の行、単語境界など）は `ika kb grep` を使う。検索範囲は kb/ の中に限られる。結果は信頼度順にならないので、当たったファイルの `type`・`status` は自分で確かめる
    CLI が使えない環境でだけ、`IKA_HOME` 下の `kb/` を `rg` で直接探す
 4. 数値や推移を問われたら、表形式データも見る。`ika data ls` で一覧し、`ika data show <name>` で列を確かめ、`ika data sql "select ..."` で集計する（SELECT のみ。テーブル名はデータセット名）。ノートや知見がデータセットを引用していることもある

@@ -9,7 +9,7 @@ use crate::frontmatter;
 use crate::kb::{guard_symlink, read, resolve};
 
 #[derive(clap::Args)]
-#[command(group(clap::ArgGroup::new("part").args(["outline", "section", "lines", "frontmatter"])))]
+#[command(group(clap::ArgGroup::new("part").args(["outline", "section", "lines", "frontmatter", "full"])))]
 pub struct Args {
     /// kb/ から始まるパス
     path: String,
@@ -26,7 +26,13 @@ pub struct Args {
     /// フロントマターだけ表示する
     #[arg(long)]
     frontmatter: bool,
+    /// 大きいファイルでも全文を表示する（既定では 8000 字を超えると見出し一覧だけ）
+    #[arg(long)]
+    full: bool,
 }
+
+/// これより長いファイルは、部分の指定がなければ見出し一覧だけを表示する（字数）
+const FULL_LIMIT: usize = 8000;
 
 pub fn run(root: &Path, args: Args) -> Result<()> {
     let rel = resolve(root, &args.path)?;
@@ -45,6 +51,12 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
         print!("{}", section_text(&text, section)?);
     } else if let Some(range) = &args.lines {
         print!("{}", lines_text(&text, range)?);
+    } else if !args.full && text.chars().count() > FULL_LIMIT {
+        print!("{}", outline(&rel.display().to_string(), &text));
+        eprintln!(
+            "大きいファイル（{} 字）なので見出し一覧だけ表示しました。全文は --full、節は --section、行範囲は --lines",
+            text.chars().count()
+        );
     } else {
         print!("{text}");
     }

@@ -34,7 +34,19 @@ pub struct Args {
     /// ファイル名だけ表示する
     #[arg(short = 'l', long)]
     pub(crate) files: bool,
+    /// 表示するファイルの件数（既定は 20。-l か検索語なしなら 50。0 で無制限）
+    #[arg(short = 'n', long)]
+    pub(crate) limit: Option<usize>,
 }
+
+/// 表示するファイルの件数の既定（一致行つき）
+const DEFAULT_LIMIT: usize = 20;
+/// `-l`（ファイル名だけ）と、検索語なし（一致行が出ない）のときの既定。1 件が短いので多くしてよい
+const FILES_LIMIT: usize = 50;
+/// 1 ファイルあたりに出す一致行の数
+const MAX_LINES: usize = 3;
+/// 一致行を切り詰める長さ（字）
+const LINE_WIDTH: usize = 160;
 
 /// 一致したファイル1件分
 pub struct Hit {
@@ -104,18 +116,60 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
 
 pub fn run(root: &Path, args: Args) -> Result<()> {
     let hits = find(root, &args)?;
-    for hit in &hits {
+    let limit = match args.limit {
+        Some(0) => hits.len(),
+        Some(n) => n,
+        None if args.files || args.terms.is_empty() => FILES_LIMIT,
+        None => DEFAULT_LIMIT,
+    };
+    let terms: Vec<String> = args.terms.iter().map(|t| t.to_lowercase()).collect();
+    for hit in hits.iter().take(limit) {
         if args.files {
             println!("{}", hit.rel.display());
             continue;
         }
         println!("{}  [{}] {}", hit.rel.display(), hit.label, hit.date);
-        for (n, line) in &hit.lines {
-            println!("  {n}: {line}");
+        for (n, line) in hit.lines.iter().take(MAX_LINES) {
+            println!("  {n}: {}", clip(line, &terms, LINE_WIDTH));
+        }
+        if hit.lines.len() > MAX_LINES {
+            println!("  …ほか {} 行", hit.lines.len() - MAX_LINES);
         }
     }
-    eprintln!("{} 件", hits.len());
+    if limit < hits.len() {
+        eprintln!("{} 件（上位 {limit} 件を表示。-n で増やせる）", hits.len());
+    } else {
+        eprintln!("{} 件", hits.len());
+    }
     Ok(())
+}
+
+/// 長い行を `width` 字に切る。最初に当たった語が残るよう、その少し前から取り、切った側に `…` を付ける
+fn clip(line: &str, terms: &[String], width: usize) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() <= width {
+        return line.to_string();
+    }
+    let lower = line.to_lowercase();
+    let first = terms
+        .iter()
+        .filter_map(|t| lower.find(t.as_str()))
+        .min()
+        .map_or(0, |byte| lower[..byte].chars().count())
+        .min(chars.len() - 1);
+    // 一致の前に少し文脈を残す
+    let start = if first + 20 > width {
+        first.saturating_sub(40)
+    } else {
+        0
+    };
+    let end = (start + width).min(chars.len());
+    format!(
+        "{}{}{}",
+        if start > 0 { "…" } else { "" },
+        chars[start..end].iter().collect::<String>(),
+        if end < chars.len() { "…" } else { "" }
+    )
 }
 
 /// status を表示する種類（decision・spec）
@@ -221,6 +275,36 @@ mod tests {
         assert_eq!(rank("approved"), rank("done"));
         assert!(rank("done") < rank("draft") && rank("draft") < rank("dropped"));
         assert_eq!(weight(&doc("draft")).2, "spec draft");
+    }
+
+    #[test]
+    fn clip_keeps_the_first_match_in_view() {
+        let terms = vec!["語".to_string()];
+        let short = "短い行 語";
+        assert_eq!(clip(short, &terms, 160), short);
+
+        let late = format!("{}語{}", "あ".repeat(600), "い".repeat(400));
+        let clipped = clip(&late, &terms, 160);
+        assert!(clipped.contains('語'), "{clipped}");
+        assert!(clipped.starts_with('…') && clipped.ends_with('…'));
+        assert!(
+            clipped.chars().count() <= 162,
+            "{}",
+            clipped.chars().count()
+        );
+
+        let early = format!("語{}", "い".repeat(400));
+        let clipped = clip(&early, &terms, 160);
+        assert!(clipped.starts_with('語') && clipped.ends_with('…'));
+        assert!(clipped.chars().count() <= 161);
+    }
+
+    #[test]
+    fn clip_is_case_insensitive_and_char_safe() {
+        let terms = vec!["review".to_string()];
+        let line = format!("{}Review{}", "日本語".repeat(100), "x".repeat(300));
+        let clipped = clip(&line, &terms, 160);
+        assert!(clipped.contains("Review"), "{clipped}");
     }
 
     #[test]
