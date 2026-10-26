@@ -23,6 +23,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `kb/projects/<name>/README.md` | プロダクトの概要（ビジネスと技術の両面）。1プロダクト1ディレクトリ |
 | `kb/projects/<name>/specs/` | 要件書（`type: spec`。機能ごと。`cycle` スキルが作り、実装後に今の形へ直す） |
 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 取り込んだ外部の資料の全文（`type: source`。`ika import` が作り、取り込み直すと上書きされる。直接編集しない） |
+| `inbox/YYYY-MM-DD.md` | 受信箱。`ika capture` で判断なしに溜めた生のメモ（`## HH:MM` で区切って追記。フロントマターなし）。`kb/` の外なので検索・`ika check`・`export`・`serve` に出ない。整理してノートにしたら `ika inbox rm`。`ika inbox` だけで読み書きする |
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
 | `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない。Markdown からいつでも作り直せる |
@@ -74,6 +75,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 ## ノートを溜めたとき
 
+- 領域などを決める前にとにかく残したいものは `ika capture "メモ"`（受信箱）。`ika kb triage` の先頭に出るので、`capture` スキルの `references/inbox.md` でノートに振り分ける
 - note は生のログ。溜めてよいが、溜まったら `ika kb triage`（未整理と古いものを優先順位つきでまとめる。`ika kb orphans` は未整理だけ）で確認し、複数のノートから言えることは insight に書き直す（ノートのコピーはしない。手順は `capture` スキルの `references/distill.md`）
 - 現状の設計・仕様・スキーマ（変わると古くなるもの）は note ではなく、`kb/projects/<name>/` の README か資料に書く
 
@@ -129,7 +131,9 @@ ika kb fts 申請を取り下げたい [-d tech -p <name> -t <tag> --type ... --
 ika kb index [--rebuild]        # fts の索引に kb/ の変更を反映する / 一から作り直す
 ika kb orphans [-p <name>] [--min 3]   # どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートをプロダクト別に数える（蒸留の候補）
 ika kb stale [-p <name>] [--days 90] [--volatile pricing,competitor,...]   # 古くなっていそうなナレッジを洗い出す: リポジトリより古い README（git log を読むだけ）、その後のノートを取り込んでいない知見、古い価格・競合などのノートを根拠にした知見・決定・要件書・README、原本が変わった・消えた取り込み資料（手元のファイルだけ）。項目ごとに直し方を出す
-ika kb triage [-p <name>] [--limit 10] [--min 3] [--days 90] [--volatile ...]   # orphans と stale をまとめ、優先順位つき（蒸留 → 知見の更新 → README → 根拠の確かめ直し → 取り込み直し。同種は件数順）の「今週やること」にする。読むだけで何も書かない。未整理が --min 件未満のプロダクトは「様子見」
+ika capture "メモ" | ika capture --stdin   # 領域・プロダクト・タグを決めずに IKA_HOME/inbox/YYYY-MM-DD.md へ即保存（URL も文字のまま。取得はしない）。書き込みは自動でコミットされる
+ika inbox ls [--date YYYY-MM-DD] | rm <YYYY-MM-DD>   # 受信箱を全文で読む / 整理し終えた日を消す
+ika kb triage [-p <name>] [--limit 10] [--min 3] [--days 90] [--volatile ...]   # orphans と stale をまとめ、優先順位つき（受信箱 → 蒸留 → 知見の更新 → README → 根拠の確かめ直し → 取り込み直し。同種は件数順）の「今週やること」にする。読むだけで何も書かない。未整理が --min 件未満のプロダクトは「様子見」
 ika kb write <path> [--overwrite]   # 標準入力の全文でファイルを作る
 ika kb append <path>                # 標準入力を末尾に足す
 ika kb edit <path> --old "..." --new "..." [--all]   # --old は1か所に一致する必要がある

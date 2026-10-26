@@ -1,7 +1,7 @@
 //! `ika kb triage`: 未整理のノートと古くなっていそうなナレッジを、優先順位つきの「今週やること」にまとめる。
 //! 判定は `orphans`・`stale` と同じで、KB には何も書かない。
 //!
-//! 並びは、種類の順（蒸留 → 知見 → README → 根拠 → 取り込み資料）、同じ種類の中では件数の多い順、同点は文字列順。
+//! 並びは、種類の順（受信箱 → 蒸留 → 知見 → README → 根拠 → 取り込み資料）、同じ種類の中では件数の多い順、同点は文字列順。
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -9,6 +9,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
+use crate::inbox;
 use crate::kb::orphans::{self, Note};
 use crate::kb::stale::{self, DEFAULT_VOLATILE};
 
@@ -47,6 +48,11 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
     let project = args.project.as_deref();
     let mut todos: Vec<Todo> = Vec::new();
 
+    // 受信箱: プロダクトに紐づかないので、プロダクトを絞ったときは出さない
+    if project.is_none() {
+        todos.extend(inbox_todo(root)?);
+    }
+
     // 蒸留: 未整理のノートがたまったプロダクト。満たないものは様子見
     let mut watch: Vec<(String, usize)> = Vec::new();
     for (name, notes) in orphans::find(root, project)? {
@@ -64,9 +70,9 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
         volatile: args.volatile.clone(),
     };
     let sections = stale::sections(root, &stale_args)?;
-    // sections の並びは [README, 知見, 根拠, 取り込み資料]。triage では 知見(1) → README(2) → 根拠(3) → 取り込み資料(4)
+    // sections の並びは [README, 知見, 根拠, 取り込み資料]。triage では 知見(2) → README(3) → 根拠(4) → 取り込み資料(5)
     for (index, section) in sections.into_iter().enumerate() {
-        let rank = [2, 1, 3, 4][index];
+        let rank = [3, 2, 4, 5][index];
         for item in section.items {
             todos.push(Todo {
                 rank,
@@ -166,10 +172,52 @@ fn distill(name: &str, notes: &[Note]) -> Todo {
         text.push_str(&format!("\n      まとめ方の候補: {}", tags.join("、")));
     }
     Todo {
-        rank: 0,
+        rank: 1,
         weight: notes.len(),
         kind: "蒸留",
         text,
         fix: DISTILL_FIX.to_string(),
     }
+}
+
+const INBOX_FIX: &str = "capture スキルの references/inbox.md で、ノートにする・既存のノートへ追記する・捨てるに振り分け、済んだ日を `ika inbox rm <日付>` で消す";
+
+/// 受信箱に項目があれば、その全体で1つの項目にする。先頭の数件は1行目だけ見せる
+fn inbox_todo(root: &Path) -> Result<Option<Todo>> {
+    const SHOWN: usize = 5;
+    let entries = inbox::entries(root)?;
+    let Some(oldest) = entries.first() else {
+        return Ok(None);
+    };
+    let mut days: Vec<&str> = entries.iter().map(|e| e.date.as_str()).collect();
+    days.dedup();
+    let mut text = format!(
+        "受信箱  {} 件（{} 日分、最も古いのは {}）",
+        entries.len(),
+        days.len(),
+        oldest.date
+    );
+    for entry in entries.iter().take(SHOWN) {
+        let first = entry.body.lines().next().unwrap_or("");
+        let short: String = first.chars().take(50).collect();
+        let ellipsis = if first.chars().count() > 50 {
+            "…"
+        } else {
+            ""
+        };
+        text.push_str(&format!(
+            "\n      {} {}  {short}{ellipsis}",
+            entry.date, entry.time
+        ));
+    }
+    if entries.len() > SHOWN {
+        text.push_str(&format!("\n      ほか {} 件", entries.len() - SHOWN));
+    }
+    Ok(Some(Todo {
+        rank: 0,
+        weight: entries.len(),
+        kind: "受信箱",
+        text,
+        fix: INBOX_FIX.to_string(),
+    }))
 }

@@ -2097,6 +2097,198 @@ fn triage_says_so_when_there_is_nothing_to_do() {
     assert_eq!(run.out.trim(), "今週やることはありません");
 }
 
+// ---- ika capture / ika inbox ----
+
+fn today() -> String {
+    // テストは日付の境目をまたがない前提で、`ika capture` が使うローカル日付と同じ形にする
+    String::from_utf8(
+        Command::new("date")
+            .arg("+%Y-%m-%d")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+}
+
+#[test]
+fn capture_appends_timestamped_entries_without_any_decisions() {
+    let f = Fixture::new("capture");
+    let day = today();
+
+    // R1・R2: 引数（複数の語は空白でつなぐ）と、標準入力の複数行
+    let first = f.ika(&["capture", "気になる", "メモ"]);
+    assert!(first.ok, "{}", first.err);
+    assert!(
+        first.out.contains(&format!("inbox/{day}.md（今日 1 件）")),
+        "{}",
+        first.out
+    );
+    let second = f.ika_with(&["capture", "--stdin"], Some("一行目\n二行目\n"));
+    assert!(second.ok, "{}", second.err);
+    assert!(second.out.contains("今日 2 件"), "{}", second.out);
+
+    let file = f.read(&format!("inbox/{day}.md"));
+    assert_eq!(file.matches("\n## ").count() + 1, 2, "{file}");
+    assert!(
+        file.contains("気になる メモ") && file.contains("一行目\n二行目"),
+        "{file}"
+    );
+    // 1回目の内容は消えない。フロントマターは付かない
+    assert!(file.starts_with("## "), "{file}");
+
+    // R3: URL もただの文字
+    assert!(f.ika(&["capture", "https://example.test/x?a=1"]).ok);
+    assert!(
+        f.read(&format!("inbox/{day}.md"))
+            .contains("https://example.test/x?a=1")
+    );
+}
+
+#[test]
+fn capture_refuses_empty_text_and_needs_ika_home() {
+    let f = Fixture::new("capture-empty");
+    assert!(!f.ika(&["capture", "   "]).ok);
+    assert!(!f.ika_with(&["capture", "--stdin"], Some("\n \n")).ok);
+    assert!(!f.exists("inbox"), "空の文章ではファイルを作らない");
+
+    // R10
+    let none = f.run(&["capture", "x"], None, None);
+    assert!(!none.ok && none.err.contains("IKA_HOME"), "{}", none.err);
+}
+
+#[test]
+fn capture_keeps_every_entry_when_run_concurrently() {
+    let f = Fixture::new("capture-concurrent");
+    let handles: Vec<_> = (0..6)
+        .map(|n| {
+            let root = f.root();
+            let bin = env!("CARGO_BIN_EXE_ika");
+            let cwd = f.dir.join("work");
+            std::thread::spawn(move || {
+                let out = Command::new(bin)
+                    .current_dir(cwd)
+                    .env("IKA_HOME", root)
+                    .args(["capture", &format!("並行-{n}")])
+                    .output()
+                    .unwrap();
+                assert!(out.status.success());
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+    let file = f.read(&format!("inbox/{}.md", today()));
+    for n in 0..6 {
+        assert!(file.contains(&format!("並行-{n}")), "{file}");
+    }
+    assert_eq!(
+        file.lines().filter(|l| l.starts_with("## ")).count(),
+        6,
+        "{file}"
+    );
+}
+
+#[test]
+fn capture_and_inbox_rm_each_make_one_commit() {
+    let f = Fixture::bare("capture-commit");
+    assert!(f.ika(&["init"]).ok);
+    assert!(f.ika(&["capture", "メモ"]).ok);
+    let log = f.git(&["log", "--format=%s"]);
+    assert_eq!(log.lines().count(), 2, "{log}");
+    assert!(log.lines().next().unwrap().contains("inbox"), "{log}");
+    assert!(f.ika(&["inbox", "rm", &today()]).ok);
+    let log = f.git(&["log", "--format=%s"]);
+    assert_eq!(log.lines().count(), 3, "{log}");
+    // 失敗した rm はコミットを増やさない
+    assert!(!f.ika(&["inbox", "rm", &today()]).ok);
+    assert_eq!(f.git(&["log", "--format=%s"]).lines().count(), 3);
+}
+
+#[test]
+fn inbox_ls_lists_everything_in_order_and_rm_validates_the_date() {
+    let f = Fixture::new("inbox-ls");
+    assert!(f.ika(&["inbox", "ls"]).out.contains("受信箱は空です"));
+
+    f.write(
+        "inbox/2026-10-20.md",
+        "## 09:05\n\n古いメモ\n\n## 14:32\n\n次\nの行\n\n",
+    );
+    f.write("inbox/2026-10-21.md", "## 08:00\n\n翌日\n\n");
+    f.write("inbox/memo.txt", "日付ではない\n");
+    let all = f.ika(&["inbox", "ls"]).out;
+    let order: Vec<usize> = ["古いメモ", "次\nの行", "翌日"]
+        .iter()
+        .map(|t| all.find(t).expect(&all))
+        .collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{all}");
+    assert!(
+        all.contains("■ 2026-10-20 09:05") && !all.contains("日付ではない"),
+        "{all}"
+    );
+    let one = f.ika(&["inbox", "ls", "--date", "2026-10-21"]).out;
+    assert!(one.contains("翌日") && !one.contains("古いメモ"), "{one}");
+
+    // R7: 不正な日付・パス・存在しない日付は何も消さない
+    for bad in ["2026-13-40", "../kb/x", "2026-1-5", "2026-10-22"] {
+        assert!(!f.ika(&["inbox", "rm", bad]).ok, "{bad}");
+    }
+    assert!(f.exists("inbox/2026-10-20.md") && f.exists("inbox/2026-10-21.md"));
+    let rm = f.ika(&["inbox", "rm", "2026-10-20"]);
+    assert!(rm.ok && rm.out.contains("2 件"), "{}", rm.out);
+    assert!(!f.exists("inbox/2026-10-20.md"));
+    assert!(!f.ika(&["inbox", "ls"]).out.contains("古いメモ"));
+}
+
+#[test]
+fn inbox_stays_out_of_the_kb_and_leads_the_triage() {
+    let f = triage_fixture("inbox-triage");
+    // 6 件: 先頭 5 件と「ほか 1 件」
+    for n in 0..6 {
+        f.write(
+            &format!("inbox/2026-10-2{n}.md"),
+            &format!("## 10:0{n}\n\n{}メモ{n}\n\n", "長い".repeat(40)),
+        );
+    }
+    // R9: 受信箱は check・ls・検索に出ない
+    let check = f.ika(&["check"]);
+    assert!(check.ok, "{}", check.out);
+    assert!(!f.ika(&["kb", "ls"]).out.contains("inbox"));
+    assert!(!f.ika(&["kb", "search", "メモ", "-l"]).out.contains("inbox"));
+
+    // R8
+    let out = f.ika(&["kb", "triage"]).out;
+    let inbox = out
+        .find("1. 【受信箱】受信箱  6 件（6 日分、最も古いのは 2026-10-20）")
+        .expect(&out);
+    let distill = out.find("2. 【蒸留】foo").expect(&out);
+    assert!(inbox < distill, "{out}");
+    assert!(out.contains("ほか 1 件") && out.contains("…"), "{out}");
+    assert!(
+        out.contains("inbox.md") && out.contains("ika inbox rm"),
+        "{out}"
+    );
+    assert!(
+        out.contains("2026-10-20 10:00") && !out.contains("2026-10-25 10:05"),
+        "{out}"
+    );
+    // プロダクトを絞ると出ない
+    assert!(
+        !f.ika(&["kb", "triage", "-p", "foo"])
+            .out
+            .contains("【受信箱】")
+    );
+
+    // 空になれば項目も消える
+    for n in 0..6 {
+        assert!(f.ika(&["inbox", "rm", &format!("2026-10-2{n}")]).ok);
+    }
+    assert!(!f.ika(&["kb", "triage"]).out.contains("【受信箱】"));
+}
+
 // ---- ika install / ika check（プラグインの version）----
 
 #[cfg(unix)]

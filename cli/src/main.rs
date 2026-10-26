@@ -10,6 +10,7 @@ mod domain;
 mod export;
 mod frontmatter;
 mod import;
+mod inbox;
 mod init;
 mod install;
 mod kb;
@@ -55,6 +56,13 @@ enum Command {
         #[command(subcommand)]
         command: data::Command,
     },
+    /// 領域・プロダクト・タグを決めずに、文章（URL も）を受信箱へ即保存する。整理は後で（capture スキル）
+    Capture(inbox::CaptureArgs),
+    /// 受信箱の中身を読む・整理し終えた日を消す
+    Inbox {
+        #[command(subcommand)]
+        command: inbox::Command,
+    },
     /// kb/ 配下のファイルを読み書きする（どのディレクトリからでも実行できる）
     Kb {
         #[command(subcommand)]
@@ -96,6 +104,8 @@ fn run() -> anyhow::Result<ExitCode> {
         Command::Project { command } => project::run(&root::data_dir()?, command)?,
         Command::Domain { command } => domain::run(&root::data_dir()?, command)?,
         Command::Data { command } => data::run(&root::data_dir()?, command)?,
+        Command::Capture(args) => inbox::capture(&root::data_dir()?, args)?,
+        Command::Inbox { command } => inbox::run(&root::data_dir()?, command)?,
         Command::Kb { command } => kb::run(&root::data_dir()?, command)?,
         Command::Serve(args) => serve::run(&root::data_dir()?, args)?,
         Command::New(args) => new::run(&root::data_dir()?, args)?,

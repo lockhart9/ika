@@ -1,6 +1,6 @@
 ---
 name: capture
-description: 情報収集の結果・調査メモ・ビジネスやドメインの知識・技術的な知見を ika のナレッジベースに記録する。「メモして」「KBに残して」「記録しておいて」「この記事をまとめて保存」のような依頼や、調査を終えて残す価値のある事実が出たときに使う。
+description: 情報収集の結果・調査メモ・ビジネスやドメインの知識・技術的な知見を ika のナレッジベースに記録する。「メモして」「KBに残して」「記録しておいて」「この記事をまとめて保存」のような依頼や、調査を終えて残す価値のある事実が出たときに使う。受信箱（`ika capture` で判断なしに溜めたメモ）を片付けたいとき（「受信箱を整理して」）にも使う。
 compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 
@@ -39,6 +39,10 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
 6. `ika kb` は書き込み後に指摘（フロントマター・リンク切れ・図の記法の誤り）を表示するので直す。最後に `ika check` を通す（CLI が無ければフロントマターを目視で確認）
 7. 関連する `kb/projects/<name>/README.md` の「関連」（ビジネス／技術）や `insights/` に影響があれば追記を提案する
 8. note を書いたら `ika kb orphans -p <name>` を実行する。「要整理」（3件以上）が出ていれば、[references/distill.md](references/distill.md) の手順で insight への蒸留をユーザーに提案する（押し付けず、断られたらそのまま）。続けて `ika kb stale -p <name>` を実行し、今書いたノートより前の知見が「新しいノートを取り込んでいない知見」に出ていれば、その知見の更新も同じ手順で提案する（`unrecognized subcommand` と出る古い ika では飛ばす）
+
+## 受信箱
+
+領域・プロダクト・タグを決める前に、まず残したいだけのときは `ika capture "メモ"`（URL でもよい。複数行は `--stdin`）で受信箱に溜められる。判断はいらない。溜まったメモの振り分けは [references/inbox.md](references/inbox.md) の手順で行う（`ika inbox ls` で読み、ノートにしたら `ika inbox rm <日付>`）。`unrecognized subcommand` と出る古い ika では使えない。
 
 ## しないこと
 
