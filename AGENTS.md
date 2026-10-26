@@ -117,7 +117,7 @@ ika project show <name> [--readme]   # 登録情報と、projects: にそのプ�
 ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]   # 登録済みの項目を書き換える
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
-ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須
+ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須。作った直後に標準エラーへ、似た既存のナレッジ（上位3件。タイトルとタグの語から fts で探す）と、リンクを足す README の候補を出す（標準出力は作ったパスだけ。`ika kb write` の新規作成も同じ）
 ika new spec "タイトル" --project <name> --slug <英字> [--stdin]   # 要件書を kb/projects/<name>/specs/ に作る（--domain は付けない。status: draft で始まる）
 ika import <file>... --project <name> | --domain <領域> [--project ...] [--tags ...] [--slug ...] [--title ...] [--source <URL>]   # 外部のドキュメント（md・html・csv・docx・xlsx・xls・ods・pptx・pdf）を Markdown にして sources/ に全文で置く。変換は Rust だけで行う。同じ source で取り込み直すと、変わっていたときだけ上書きする
 ika import - --project <name> --source <URL> --title "..." [--format md|html|csv]   # 標準入力から（Drive・Notion の MCP で取った本文など）
@@ -146,7 +146,7 @@ ika data sql "select ..." [--json]  # 読み取り専用で SELECT（テーブ�
 ika data export <name>              # CSV で標準出力へ
 ika data delete <name> --where "..." / rm <name>   # 行の訂正は消して追記し直す / データセットごと消す
 ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる。検索語は結果の抜粋と、そこから開いたページ（`?hl=`）で黄色くハイライトする
-ika check                       # KB・登録簿・データセット定義・図の記法の検証。リポジトリ内で実行するとプラグインも検証する
+ika check                       # KB・登録簿・データセット定義・図の記法の検証。14 日以内のノートでどこからもリンクされていないものは「注意」に出す（失敗にはしない）。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
 ika export claude [--with-kb] [--domain <領域>]... [--no-projects] [--with-sources]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る

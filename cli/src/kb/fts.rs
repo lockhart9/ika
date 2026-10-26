@@ -199,6 +199,17 @@ pub(crate) fn needles(terms: &[String]) -> BTreeSet<String> {
     out
 }
 
+/// 文章の内容語（形態素の表層形と基本形。表層形が 2 文字以上のもの）。基本形ごとに 1 つ、登場順
+pub(crate) fn content_words(text: &str) -> Vec<(String, String)> {
+    let mut seen = BTreeSet::new();
+    analyze(text)
+        .into_iter()
+        .filter(|w| w.surface.chars().count() >= 2)
+        .filter(|w| seen.insert(w.base.clone()))
+        .map(|w| (w.surface, w.base))
+        .collect()
+}
+
 // ---- 解析 ----
 
 /// 形態素1つ（小文字にしたもの）

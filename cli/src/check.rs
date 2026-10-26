@@ -84,6 +84,7 @@ pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
         None => println!("（ika のリポジトリの外なので、プラグインの検証は省きました）"),
     }
 
+    let notices = unlinked_recent_notes(root, &files)?;
     if problems.is_empty() {
         println!(
             "OK（{} プロダクト、{} 領域、{} ファイル）",
@@ -91,13 +92,66 @@ pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
             domains.len(),
             files.len()
         );
+        print_notices(&notices);
         return Ok(ExitCode::SUCCESS);
     }
     for problem in &problems {
         println!("{problem}");
     }
     println!("\n{} 件の問題があります", problems.len());
+    print_notices(&notices);
     Ok(ExitCode::FAILURE)
+}
+
+/// 「新しい」とみなす日数（`unlinked_recent_notes`）
+const RECENT_DAYS: u64 = 14;
+
+/// 作成日が最近で、kb/ のどのファイルからもリンクされていないノート（日付, パス）。古い孤立は `ika kb triage` が受け持つ
+fn unlinked_recent_notes(root: &Path, files: &[PathBuf]) -> Result<Vec<(String, String)>> {
+    let cutoff = chrono::Local::now()
+        .date_naive()
+        .checked_sub_days(chrono::Days::new(RECENT_DAYS))
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    let mut linked: HashSet<PathBuf> = HashSet::new();
+    let mut recent: Vec<(String, PathBuf)> = Vec::new();
+    for file in files {
+        let rel = file.strip_prefix(root).unwrap_or(file).to_path_buf();
+        let text = fs::read_to_string(file)?;
+        let dir = rel.parent().unwrap_or(Path::new(""));
+        for target in link_targets(&text) {
+            let target = crate::kb::normalize(&dir.join(target));
+            if target != rel {
+                linked.insert(target);
+            }
+        }
+        let fields = frontmatter::parse(&text).ok().flatten().unwrap_or_default();
+        let date = fields.get("date").cloned().unwrap_or_default();
+        let in_notes = rel.iter().nth(2).is_some_and(|p| p == "notes");
+        if fields.get("type").is_some_and(|t| t == "note") && in_notes && date >= cutoff {
+            recent.push((date, rel));
+        }
+    }
+    recent.retain(|(_, rel)| !linked.contains(rel));
+    recent.sort();
+    Ok(recent
+        .into_iter()
+        .map(|(date, rel)| (date, rel.display().to_string()))
+        .collect())
+}
+
+fn print_notices(notices: &[(String, String)]) {
+    if notices.is_empty() {
+        return;
+    }
+    println!(
+        "\n注意（失敗にはしません）: {RECENT_DAYS} 日以内のノートのうち、どこからもリンクされていないもの {} 件",
+        notices.len()
+    );
+    for (date, rel) in notices {
+        println!("  {date}  {rel}");
+    }
+    println!("  insight・決定・プロダクトの README の「関連」からリンクを張ってください");
 }
 
 /// 1ファイルだけ検証する（`ika kb` の書き込み後に使う）。`rel` はルートからの相対パス

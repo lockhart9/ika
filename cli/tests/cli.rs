@@ -2289,6 +2289,235 @@ fn inbox_stays_out_of_the_kb_and_leads_the_triage() {
     assert!(!f.ika(&["kb", "triage"]).out.contains("【受信箱】"));
 }
 
+// ---- 書いた直後の提案（ika new / ika kb write）と ika check の注意 ----
+
+fn note_with(title: &str, tags: &str, body: &str) -> String {
+    format!(
+        "---\ntitle: {title}\ntype: note\ndate: 2026-10-10\nprojects: [foo]\ntags: [{tags}]\n---\n\n{body}\n"
+    )
+}
+
+#[test]
+fn new_suggests_similar_notes_and_readme_links_on_stderr_only() {
+    let f = Fixture::new("suggest");
+    f.write(
+        "kb/tech/notes/2026/2026-10-10-photo.md",
+        &note_with("写真共有サービスの競合調査", "competitor", "本文"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-11-auth.md",
+        &note_with("認証の実装メモ", "auth", "本文"),
+    );
+    // type: source は照合しない
+    f.write(
+        "kb/tech/notes/2026/2026-10-12-src.md",
+        &note_with("写真共有サービスの競合調査", "competitor", "本文")
+            .replace("type: note", "type: source\nsource: x"),
+    );
+
+    let run = f.ika_with(
+        &[
+            "new",
+            "note",
+            "写真共有アプリの競合比較",
+            "-d",
+            "tech",
+            "-p",
+            "foo",
+            "-t",
+            "competitor",
+            "--slug",
+            "probe",
+            "--stdin",
+        ],
+        Some("本文\n"),
+    );
+    assert!(run.ok, "{}", run.err);
+    // R1・R7: 標準出力は作ったパスだけ。提案は標準エラー
+    let day = today();
+    assert_eq!(run.out.trim(), format!("kb/tech/notes/2026/{day}-probe.md"));
+    let err = run.err;
+    assert!(err.contains("似た既存のナレッジ"), "{err}");
+    assert!(
+        err.contains("2026-10-10-photo.md") && err.contains("[note] 2026-10-10"),
+        "{err}"
+    );
+    assert!(err.contains("共通の語:") && err.contains("写真"), "{err}");
+    assert!(err.contains("追記を"), "{err}");
+    // 無関係なもの・ソース・自分自身は出ない
+    assert!(
+        !err.contains("2026-10-11-auth.md") && !err.contains("2026-10-12-src.md"),
+        "{err}"
+    );
+    assert!(!err.contains(&format!("{day}-probe.md")), "{err}");
+    // R5: README にリンクが無いので候補に出る
+    assert!(
+        err.contains("README の「関連」に足す候補: kb/projects/foo/README.md"),
+        "{err}"
+    );
+}
+
+#[test]
+fn new_skips_readme_suggestion_when_already_linked_and_ignores_unrelated_titles() {
+    let f = Fixture::new("suggest-readme");
+    let day = today();
+    f.write(
+        "kb/projects/foo/README.md",
+        &format!(
+            "---\ntitle: foo\ntype: project\ndate: 2026-10-14\nprojects: [foo]\ntags: []\n---\n\n[x](../../tech/notes/{}/{day}-probe.md)\n",
+            &day[..4]
+        ),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-11-auth.md",
+        &note_with("認証の実装メモ", "auth", "本文"),
+    );
+    let run = f.ika_with(
+        &[
+            "new",
+            "note",
+            "支払いの返金処理",
+            "-d",
+            "tech",
+            "-p",
+            "foo",
+            "--slug",
+            "probe",
+            "--stdin",
+        ],
+        Some("本文\n"),
+    );
+    assert!(run.ok, "{}", run.err);
+    // 似たものも README の候補も無ければ、何も出ない
+    assert!(run.err.trim().is_empty(), "{}", run.err);
+}
+
+#[test]
+fn new_ignores_generic_words_in_big_kbs_but_keeps_specific_ones() {
+    let f = Fixture::new("suggest-generic");
+    for n in 0..30 {
+        f.write(
+            &format!("kb/tech/notes/2026/2026-10-{:02}-filler{n}.md", 1 + n % 9),
+            &note_with(
+                &format!("調査メモ {n} まとめ"),
+                "misc",
+                "調査の結果をまとめた",
+            ),
+        );
+    }
+    f.write(
+        "kb/tech/notes/2026/2026-10-10-token.md",
+        &note_with("認証トークンの更新調査", "auth", "本文"),
+    );
+    let new = |title: &str, slug: &str| {
+        f.ika_with(
+            &[
+                "new", "note", title, "-d", "tech", "--slug", slug, "--stdin",
+            ],
+            Some("本文\n"),
+        )
+    };
+    // 「調査」「まとめ」だけでは似ているとは言えない
+    let generic = new("調査まとめ", "generic");
+    assert!(
+        generic.ok && !generic.err.contains("似た既存"),
+        "{}",
+        generic.err
+    );
+    // 一般的な語（調査）を除いても、認証・トークンが共通なら出る
+    let specific = new("認証トークンの失効調査", "specific");
+    assert!(
+        specific.err.contains("2026-10-10-token.md") && !specific.err.contains("filler"),
+        "{}",
+        specific.err
+    );
+}
+
+#[test]
+fn kb_write_suggests_for_new_files_only_and_failures_never_break_the_write() {
+    let f = Fixture::new("suggest-write");
+    f.write(
+        "kb/tech/notes/2026/2026-10-10-photo.md",
+        &note_with("写真共有サービスの競合調査", "competitor", "本文"),
+    );
+    let text = note_with("写真共有アプリの競合比較", "competitor", "本文");
+    let run = f.ika_with(
+        &["kb", "write", "kb/tech/notes/2026/2026-10-20-w.md"],
+        Some(&text),
+    );
+    assert!(run.ok, "{}", run.err);
+    assert!(run.err.contains("2026-10-10-photo.md"), "{}", run.err);
+    assert!(!run.err.contains("2026-10-20-w.md"), "{}", run.err);
+
+    // R2: --overwrite では出さない
+    let again = f.ika_with(
+        &[
+            "kb",
+            "write",
+            "kb/tech/notes/2026/2026-10-20-w.md",
+            "--overwrite",
+        ],
+        Some(&text),
+    );
+    assert!(again.ok && !again.err.contains("似た既存"), "{}", again.err);
+
+    // R6: 索引を作れなくても書き込みは成功し、標準出力は変わらない
+    fs::remove_dir_all(f.root().join(".cache")).unwrap();
+    fs::write(
+        f.root().join(".cache"),
+        "ファイルがディレクトリの場所にある",
+    )
+    .unwrap();
+    let broken = f.ika_with(
+        &["kb", "write", "kb/tech/notes/2026/2026-10-21-w.md"],
+        Some(&text),
+    );
+    assert!(broken.ok, "{}", broken.err);
+    assert!(
+        broken.out.contains("書きました") && !broken.err.contains("似た既存"),
+        "{}",
+        broken.err
+    );
+    assert!(f.exists("kb/tech/notes/2026/2026-10-21-w.md"));
+}
+
+#[test]
+fn check_notes_recent_unlinked_notes_without_failing() {
+    let f = Fixture::new("check-notice");
+    let day = today();
+    let recent = |slug: &str| format!("kb/tech/notes/2026/{day}-{slug}.md");
+    let body = |title: &str, date: &str| {
+        NOTE.replace("title: n", &format!("title: {title}"))
+            .replace("date: 2026-10-14", &format!("date: {date}"))
+    };
+    f.write(&recent("lonely"), &body("孤立", &day));
+    f.write(&recent("linked"), &body("リンクあり", &day));
+    f.write(
+        "kb/tech/notes/2020/2020-01-01-old.md",
+        &body("古い孤立", "2020-01-01"),
+    );
+    f.write(
+        "kb/tech/insights/i.md",
+        &NOTE
+            .replace("本文", &format!("[x](../notes/2026/{day}-linked.md)"))
+            .replace("type: note", "type: insight"),
+    );
+    let run = f.ika(&["check"]);
+    // 注意が出ても成功し、OK も出る
+    assert!(run.ok && run.out.contains("OK（"), "{}", run.out);
+    assert!(
+        run.out.contains("注意（失敗にはしません）")
+            && run.out.contains(&format!("{day}-lonely.md")),
+        "{}",
+        run.out
+    );
+    assert!(
+        !run.out.contains("-linked.md") && !run.out.contains("2020-01-01-old.md"),
+        "{}",
+        run.out
+    );
+}
+
 // ---- ika install / ika check（プラグインの version）----
 
 #[cfg(unix)]

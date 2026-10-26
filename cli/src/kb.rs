@@ -21,6 +21,7 @@ pub mod grep;
 pub mod orphans;
 pub mod search;
 pub mod stale;
+pub mod suggest;
 pub mod triage;
 
 #[derive(Subcommand)]
@@ -132,6 +133,9 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
                 atomic::create_new(&abs, &text)?;
             }
             done(root, "書きました", &rel, &text)?;
+            if !overwrite {
+                suggest::after_write(root, &rel, &text);
+            }
             vcs::commit(root, &format!("kb write {}", rel.display()));
         }
         Command::Append { path } => {
