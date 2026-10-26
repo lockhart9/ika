@@ -7,6 +7,7 @@ compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書�
 # decide: 意思決定を支援し記録する
 
 KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。構成と書式は [references/kb-format.md](references/kb-format.md)、ひな形は [assets/decision.md](assets/decision.md)。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
 KB にアクセスできない環境（claude.ai・ChatGPT web など）では、保存先のパスとフロントマター付きの本文を出力し、ユーザーに保存してもらう。
 
 ## 手順
