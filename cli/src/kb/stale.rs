@@ -23,14 +23,17 @@ const VOLATILE: &str = "pricing,price,cost,aws-cost,competitor,価格,競合,料
 pub struct Args {
     /// このプロダクトに関わるものだけ
     #[arg(short, long)]
-    project: Option<String>,
+    pub(super) project: Option<String>,
     /// 変わりやすい情報のノートを「古い」とみなす日数
     #[arg(long, default_value_t = 90)]
-    days: u64,
+    pub(super) days: u64,
     /// 変わりやすい情報を表すタグ（カンマ区切り）
     #[arg(long, value_delimiter = ',', default_value = VOLATILE)]
-    volatile: Vec<String>,
+    pub(super) volatile: Vec<String>,
 }
+
+/// `--volatile` の既定（`triage` が同じ既定を使う）
+pub const DEFAULT_VOLATILE: &str = VOLATILE;
 
 /// kb/ の Markdown 1件分
 struct Doc {
@@ -103,21 +106,34 @@ fn load(root: &Path) -> Result<Vec<Doc>> {
 }
 
 /// 点検1つ分の結果（見出し・直し方・項目）
-struct Section {
-    heading: String,
-    fix: &'static str,
-    items: Vec<String>,
+pub struct Section {
+    /// 点検の種類を表す短い名前（`triage` の項目の頭に付ける）
+    pub kind: &'static str,
+    pub heading: String,
+    pub fix: &'static str,
+    pub items: Vec<Item>,
+}
+
+/// 古そうなものの1件。`text` は印字用（1行目が要約、続く行が詳細）、`weight` は同じ種類の中での大きさ
+pub struct Item {
+    pub text: String,
+    pub weight: usize,
+}
+
+/// 4つの点検を、README・知見・変わりやすい情報・取り込み資料の順で返す
+pub fn sections(root: &Path, args: &Args) -> Result<[Section; 4]> {
+    let docs = load(root)?;
+    let today = Local::now().date_naive();
+    Ok([
+        readmes(root, &docs, args)?,
+        insights(&docs, args),
+        volatile(&docs, args, today),
+        sources(&docs, args),
+    ])
 }
 
 pub fn run(root: &Path, args: Args) -> Result<()> {
-    let docs = load(root)?;
-    let today = Local::now().date_naive();
-    let sections = [
-        readmes(root, &docs, &args)?,
-        insights(&docs, &args),
-        volatile(&docs, &args, today),
-        sources(&docs, &args),
-    ];
+    let sections = sections(root, &args)?;
     let total: usize = sections.iter().map(|s| s.items.len()).sum();
     if total == 0 {
         println!("古くなっていそうなものは見つかりませんでした");
@@ -132,7 +148,7 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
             section.fix
         );
         for item in &section.items {
-            println!("{item}");
+            println!("{}", item.text);
         }
     }
     Ok(())
@@ -166,14 +182,18 @@ fn readmes(root: &Path, docs: &[Doc], args: &Args) -> Result<Section> {
             continue;
         }
         let latest = git(&repo, &["log", "-1", "--format=%cs"]).unwrap_or_default();
-        items.push(format!(
-            "  {}  README {} · その後のコミット {count} 件（最新 {latest}）\n      {}",
-            project.name,
-            doc.date,
-            doc.rel.display()
-        ));
+        items.push(Item {
+            text: format!(
+                "  {}  README {} · その後のコミット {count} 件（最新 {latest}）\n      {}",
+                project.name,
+                doc.date,
+                doc.rel.display()
+            ),
+            weight: count,
+        });
     }
     Ok(Section {
+        kind: "README",
         heading: "README がリポジトリより古い".into(),
         fix: "project-sync スキルで README をリポジトリの今の状態に合わせる",
         items,
@@ -217,20 +237,24 @@ fn insights(docs: &[Doc], args: &Args) -> Section {
         if newer.is_empty() {
             continue;
         }
-        items.push(format!(
-            "  {}  {}（{}）· その後のノート {} 件\n      {}",
-            insight.date,
-            insight.title,
-            insight.rel.display(),
-            newer.len(),
-            newer
-                .iter()
-                .map(|n| format!("{} {}", n.date, n.rel.display()))
-                .collect::<Vec<_>>()
-                .join("\n      ")
-        ));
+        items.push(Item {
+            text: format!(
+                "  {}  {}（{}）· その後のノート {} 件\n      {}",
+                insight.date,
+                insight.title,
+                insight.rel.display(),
+                newer.len(),
+                newer
+                    .iter()
+                    .map(|n| format!("{} {}", n.date, n.rel.display()))
+                    .collect::<Vec<_>>()
+                    .join("\n      ")
+            ),
+            weight: newer.len(),
+        });
     }
     Section {
+        kind: "知見",
         heading: "新しいノートを取り込んでいない知見".into(),
         fix: "ノートを読み、知見を言い直すか根拠に足す（capture スキルの references/distill.md）。関係なければそのままでよい",
         items,
@@ -270,20 +294,24 @@ fn volatile(docs: &[Doc], args: &Args, today: NaiveDate) -> Section {
         if users.is_empty() {
             continue;
         }
-        items.push(format!(
-            "  {}  {}（#{}）\n      {}\n      根拠にしている: {}",
-            note.date,
-            note.title,
-            matched.join(" #"),
-            note.rel.display(),
-            users
-                .iter()
-                .map(|d| d.rel.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        items.push(Item {
+            text: format!(
+                "  {}  {}（#{}）\n      {}\n      根拠にしている: {}",
+                note.date,
+                note.title,
+                matched.join(" #"),
+                note.rel.display(),
+                users
+                    .iter()
+                    .map(|d| d.rel.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            weight: users.len(),
+        });
     }
     Section {
+        kind: "根拠",
         heading: format!(
             "{} 日より前の変わりやすい情報（価格・競合など）を根拠にしている",
             args.days
@@ -321,14 +349,18 @@ fn sources(docs: &[Doc], args: &Args) -> Section {
             Some(hash) if hash != doc.hash => "原本が変わりました",
             Some(_) => continue,
         };
-        items.push(format!(
-            "  {}  {reason}: {}\n      {}",
-            doc.date,
-            doc.source,
-            doc.rel.display()
-        ));
+        items.push(Item {
+            text: format!(
+                "  {}  {reason}: {}\n      {}",
+                doc.date,
+                doc.source,
+                doc.rel.display()
+            ),
+            weight: 1,
+        });
     }
     Section {
+        kind: "取り込み資料",
         heading: "原本が変わった・見当たらない取り込み資料".into(),
         fix: "変わったものは `ika import <原本> --project <name>` で取り込み直し、要点を書き起こした README・要件書・ノートも見直す。見当たらないものは原本の場所を確かめる",
         items,

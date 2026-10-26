@@ -23,6 +23,7 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
    ...本文（背景・選択肢・決定・理由・見直す条件）...
    EOF
    ```
+   作った直後に「似た既存のナレッジ」が標準エラーに出たら、同じ論点の決定がすでにないか確かめる（あれば新しく作らず、覆すなら手順 4）。
    `status` などフロントマターの直しは `ika kb edit <path> --old "status: proposed" --new "status: accepted"`
    - 領域は「何についての決定か」で選ぶ（価格・ターゲット・撤退 → `business`、技術選定・設計・移行 → `tech`）
    - `status`: ユーザーが決めた → `accepted`、まだ案 → `proposed`、見送り → `rejected`

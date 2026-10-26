@@ -1907,6 +1907,617 @@ fn orphans_says_so_when_everything_is_organized() {
     );
 }
 
+// ---- ika kb triage ----
+
+/// IKA_HOME 下の全ファイルの中身（読み取り専用の確認用）
+fn snapshot(dir: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let bytes = fs::read(&path).unwrap();
+                out.push((path, bytes));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// foo のリポジトリ（README より後のコミットが1件）と、未整理のノート・知見のある KB
+fn triage_fixture(name: &str) -> Fixture {
+    let f = Fixture::new(name);
+    let repo = f.dir.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["commit", "-q", "--allow-empty", "-m", "after readme"],
+    ] {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.test"])
+            .args(&args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+    f.write(
+        "data/projects.csv",
+        &format!(
+            "name,path,url,status,summary\nfoo,{},,active,Foo\nbar,,,active,Bar\n",
+            repo.display()
+        ),
+    );
+    f.write(
+        "kb/projects/bar/README.md",
+        "---\ntitle: bar\ntype: project\ndate: 2026-10-14\nprojects: [bar]\ntags: []\n---\n\n# bar\n",
+    );
+    let note = |slug: &str, date: &str, projects: &str, tags: &str| {
+        f.write(
+            &format!("kb/tech/notes/2026/{date}-{slug}.md"),
+            &format!(
+                "---\ntitle: note {slug}\ntype: note\ndate: {date}\nprojects: {projects}\ntags: [{tags}]\n---\n\n本文\n"
+            ),
+        );
+    };
+    // foo: a・b・c・two の 4 件（auth を 3 件が共有）。bar: two・x の 2 件
+    note("a", "2026-10-14", "[foo]", "auth");
+    note("b", "2026-10-15", "[foo]", "auth");
+    note("c", "2026-10-16", "[foo]", "auth, infra");
+    note("two", "2026-10-17", "[foo, bar]", "infra");
+    note("x", "2026-10-18", "[bar]", "");
+    // 知見（2026-10-01）は、auth の新しいノートをまだ取り込んでいない
+    f.write(
+        "kb/tech/insights/auth.md",
+        "---\ntitle: 認証の知見\ntype: insight\ndate: 2026-10-01\nprojects: [foo]\ntags: [auth]\n---\n\n本文\n",
+    );
+    f
+}
+
+#[test]
+fn triage_ranks_distill_then_insight_then_readme_and_explains_each() {
+    let f = triage_fixture("triage");
+    let before = snapshot(&f.root());
+    let run = f.ika(&["kb", "triage"]);
+    assert!(run.ok, "{}", run.err);
+    let out = run.out;
+
+    // R2: 蒸留 → 知見 → README の順。番号つき
+    let distill = out.find("1. 【蒸留】foo").expect(&out);
+    let insight = out.find("2. 【知見】").expect(&out);
+    let readme = out.find("3. 【README】foo").expect(&out);
+    assert!(distill < insight && insight < readme, "{out}");
+    assert!(out.contains("今週やること（3 件）"), "{out}");
+
+    // R3: 4 件の foo は項目、2 件の bar は様子見
+    assert!(out.contains("foo  未整理のノート 4 件"), "{out}");
+    assert!(
+        out.contains("様子見（未整理のノートが 3 件未満）: bar 2 件"),
+        "{out}"
+    );
+    assert!(!out.contains("【蒸留】bar"), "{out}");
+
+    // R4: 3 件が共有する auth と、2 件が共有する infra が候補。1 件だけのタグは出ない
+    assert!(
+        out.contains("まとめ方の候補: #auth（3 件）、#infra（2 件）"),
+        "{out}"
+    );
+    // R5: 複数プロダクトのノートに、もう一方のプロダクト名が付く
+    assert!(out.contains("note two（ほか bar にも関連）"), "{out}");
+    assert!(!out.contains("note a（ほか"), "{out}");
+
+    // R6: 直し方
+    assert!(out.contains("distill.md"), "{out}");
+    assert!(out.contains("project-sync"), "{out}");
+
+    // 同じ入力なら同じ出力。KB には何も書かない（R10）
+    assert_eq!(f.ika(&["kb", "triage"]).out, out);
+    assert_eq!(snapshot(&f.root()), before);
+}
+
+#[test]
+fn triage_min_moves_watched_projects_into_the_list() {
+    let f = triage_fixture("triage-min");
+    let out = f.ika(&["kb", "triage", "--min", "2"]).out;
+    // bar（2 件）が番号に入り、foo（4 件）のあとに並ぶ
+    let foo = out.find("1. 【蒸留】foo").expect(&out);
+    let bar = out.find("2. 【蒸留】bar").expect(&out);
+    assert!(foo < bar, "{out}");
+    assert!(!out.contains("様子見"), "{out}");
+    assert!(out.contains("note two（ほか foo にも関連）"), "{out}");
+}
+
+#[test]
+fn triage_limit_hides_the_rest_and_points_to_orphans_and_stale() {
+    let f = triage_fixture("triage-limit");
+    let out = f.ika(&["kb", "triage", "--limit", "1"]).out;
+    assert!(out.contains("今週やること（上位 1 件 / 全 3 件）"), "{out}");
+    assert!(out.contains("1. 【蒸留】foo"), "{out}");
+    assert!(!out.contains("2. "), "{out}");
+    assert!(
+        out.contains("ほか 2 件") && out.contains("ika kb orphans") && out.contains("ika kb stale"),
+        "{out}"
+    );
+    let all = f.ika(&["kb", "triage", "--limit", "20"]).out;
+    assert!(
+        all.contains("3. 【README】foo") && !all.contains("ほか 2 件"),
+        "{all}"
+    );
+}
+
+#[test]
+fn triage_project_filter_and_stale_options_are_passed_through() {
+    let f = triage_fixture("triage-project");
+    let out = f.ika(&["kb", "triage", "-p", "bar", "--min", "2"]).out;
+    assert!(out.contains("【蒸留】bar"), "{out}");
+    assert!(
+        !out.contains("【蒸留】foo") && !out.contains("【README】"),
+        "{out}"
+    );
+
+    // 古い価格のノートを根拠にする決定。--days と --volatile が stale と同じに効く
+    f.write(
+        "kb/tech/notes/2020/2020-01-01-cost.md",
+        "---\ntitle: 古いコスト\ntype: note\ndate: 2020-01-01\nprojects: [foo]\ntags: [cost]\n---\n\n本文\n",
+    );
+    f.write(
+        "kb/tech/decisions/2020-02-01-d.md",
+        "---\ntitle: d\ntype: decision\ndate: 2020-02-01\nprojects: [foo]\ntags: []\nstatus: accepted\n---\n\n[根拠](../notes/2020/2020-01-01-cost.md)\n",
+    );
+    let default = f.ika(&["kb", "triage", "-p", "foo"]).out;
+    assert!(
+        default.contains("【根拠】") && default.contains("古いコスト"),
+        "{default}"
+    );
+    let narrow = f
+        .ika(&["kb", "triage", "-p", "foo", "--volatile", "pricing"])
+        .out;
+    assert!(!narrow.contains("【根拠】"), "{narrow}");
+}
+
+#[test]
+fn triage_says_so_when_there_is_nothing_to_do() {
+    let f = Fixture::new("triage-none");
+    f.write("kb/tech/notes/2026/2026-10-14-a.md", NOTE);
+    f.write(
+        "kb/tech/insights/i.md",
+        &NOTE
+            .replace("本文", "[a](../notes/2026/2026-10-14-a.md)")
+            .replace("type: note", "type: insight"),
+    );
+    let run = f.ika(&["kb", "triage"]);
+    assert!(run.ok, "{}", run.err);
+    assert_eq!(run.out.trim(), "今週やることはありません");
+}
+
+// ---- ika capture / ika inbox ----
+
+fn today() -> String {
+    // テストは日付の境目をまたがない前提で、`ika capture` が使うローカル日付と同じ形にする
+    String::from_utf8(
+        Command::new("date")
+            .arg("+%Y-%m-%d")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+}
+
+#[test]
+fn capture_appends_timestamped_entries_without_any_decisions() {
+    let f = Fixture::new("capture");
+    let day = today();
+
+    // R1・R2: 引数（複数の語は空白でつなぐ）と、標準入力の複数行
+    let first = f.ika(&["capture", "気になる", "メモ"]);
+    assert!(first.ok, "{}", first.err);
+    assert!(
+        first.out.contains(&format!("inbox/{day}.md（今日 1 件）")),
+        "{}",
+        first.out
+    );
+    let second = f.ika_with(&["capture", "--stdin"], Some("一行目\n二行目\n"));
+    assert!(second.ok, "{}", second.err);
+    assert!(second.out.contains("今日 2 件"), "{}", second.out);
+
+    let file = f.read(&format!("inbox/{day}.md"));
+    assert_eq!(file.matches("\n## ").count() + 1, 2, "{file}");
+    assert!(
+        file.contains("気になる メモ") && file.contains("一行目\n二行目"),
+        "{file}"
+    );
+    // 1回目の内容は消えない。フロントマターは付かない
+    assert!(file.starts_with("## "), "{file}");
+
+    // R3: URL もただの文字
+    assert!(f.ika(&["capture", "https://example.test/x?a=1"]).ok);
+    assert!(
+        f.read(&format!("inbox/{day}.md"))
+            .contains("https://example.test/x?a=1")
+    );
+}
+
+#[test]
+fn capture_refuses_empty_text_and_needs_ika_home() {
+    let f = Fixture::new("capture-empty");
+    assert!(!f.ika(&["capture", "   "]).ok);
+    assert!(!f.ika_with(&["capture", "--stdin"], Some("\n \n")).ok);
+    assert!(!f.exists("inbox"), "空の文章ではファイルを作らない");
+
+    // R10
+    let none = f.run(&["capture", "x"], None, None);
+    assert!(!none.ok && none.err.contains("IKA_HOME"), "{}", none.err);
+}
+
+#[test]
+fn capture_keeps_every_entry_when_run_concurrently() {
+    let f = Fixture::new("capture-concurrent");
+    let handles: Vec<_> = (0..6)
+        .map(|n| {
+            let root = f.root();
+            let bin = env!("CARGO_BIN_EXE_ika");
+            let cwd = f.dir.join("work");
+            std::thread::spawn(move || {
+                let out = Command::new(bin)
+                    .current_dir(cwd)
+                    .env("IKA_HOME", root)
+                    .args(["capture", &format!("並行-{n}")])
+                    .output()
+                    .unwrap();
+                assert!(out.status.success());
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+    let file = f.read(&format!("inbox/{}.md", today()));
+    for n in 0..6 {
+        assert!(file.contains(&format!("並行-{n}")), "{file}");
+    }
+    assert_eq!(
+        file.lines().filter(|l| l.starts_with("## ")).count(),
+        6,
+        "{file}"
+    );
+}
+
+#[test]
+fn capture_and_inbox_rm_each_make_one_commit() {
+    let f = Fixture::bare("capture-commit");
+    assert!(f.ika(&["init"]).ok);
+    assert!(f.ika(&["capture", "メモ"]).ok);
+    let log = f.git(&["log", "--format=%s"]);
+    assert_eq!(log.lines().count(), 2, "{log}");
+    assert!(log.lines().next().unwrap().contains("inbox"), "{log}");
+    assert!(f.ika(&["inbox", "rm", &today()]).ok);
+    let log = f.git(&["log", "--format=%s"]);
+    assert_eq!(log.lines().count(), 3, "{log}");
+    // 失敗した rm はコミットを増やさない
+    assert!(!f.ika(&["inbox", "rm", &today()]).ok);
+    assert_eq!(f.git(&["log", "--format=%s"]).lines().count(), 3);
+}
+
+#[test]
+fn inbox_ls_lists_everything_in_order_and_rm_validates_the_date() {
+    let f = Fixture::new("inbox-ls");
+    assert!(f.ika(&["inbox", "ls"]).out.contains("受信箱は空です"));
+
+    f.write(
+        "inbox/2026-10-20.md",
+        "## 09:05\n\n古いメモ\n\n## 14:32\n\n次\nの行\n\n",
+    );
+    f.write("inbox/2026-10-21.md", "## 08:00\n\n翌日\n\n");
+    f.write("inbox/memo.txt", "日付ではない\n");
+    let all = f.ika(&["inbox", "ls"]).out;
+    let order: Vec<usize> = ["古いメモ", "次\nの行", "翌日"]
+        .iter()
+        .map(|t| all.find(t).expect(&all))
+        .collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{all}");
+    assert!(
+        all.contains("■ 2026-10-20 09:05") && !all.contains("日付ではない"),
+        "{all}"
+    );
+    let one = f.ika(&["inbox", "ls", "--date", "2026-10-21"]).out;
+    assert!(one.contains("翌日") && !one.contains("古いメモ"), "{one}");
+
+    // R7: 不正な日付・パス・存在しない日付は何も消さない
+    for bad in ["2026-13-40", "../kb/x", "2026-1-5", "2026-10-22"] {
+        assert!(!f.ika(&["inbox", "rm", bad]).ok, "{bad}");
+    }
+    assert!(f.exists("inbox/2026-10-20.md") && f.exists("inbox/2026-10-21.md"));
+    let rm = f.ika(&["inbox", "rm", "2026-10-20"]);
+    assert!(rm.ok && rm.out.contains("2 件"), "{}", rm.out);
+    assert!(!f.exists("inbox/2026-10-20.md"));
+    assert!(!f.ika(&["inbox", "ls"]).out.contains("古いメモ"));
+}
+
+#[test]
+fn inbox_stays_out_of_the_kb_and_leads_the_triage() {
+    let f = triage_fixture("inbox-triage");
+    // 6 件: 先頭 5 件と「ほか 1 件」
+    for n in 0..6 {
+        f.write(
+            &format!("inbox/2026-10-2{n}.md"),
+            &format!("## 10:0{n}\n\n{}メモ{n}\n\n", "長い".repeat(40)),
+        );
+    }
+    // R9: 受信箱は check・ls・検索に出ない
+    let check = f.ika(&["check"]);
+    assert!(check.ok, "{}", check.out);
+    assert!(!f.ika(&["kb", "ls"]).out.contains("inbox"));
+    assert!(!f.ika(&["kb", "search", "メモ", "-l"]).out.contains("inbox"));
+
+    // R8
+    let out = f.ika(&["kb", "triage"]).out;
+    let inbox = out
+        .find("1. 【受信箱】受信箱  6 件（6 日分、最も古いのは 2026-10-20）")
+        .expect(&out);
+    let distill = out.find("2. 【蒸留】foo").expect(&out);
+    assert!(inbox < distill, "{out}");
+    assert!(out.contains("ほか 1 件") && out.contains("…"), "{out}");
+    assert!(
+        out.contains("inbox.md") && out.contains("ika inbox rm"),
+        "{out}"
+    );
+    assert!(
+        out.contains("2026-10-20 10:00") && !out.contains("2026-10-25 10:05"),
+        "{out}"
+    );
+    // プロダクトを絞ると出ない
+    assert!(
+        !f.ika(&["kb", "triage", "-p", "foo"])
+            .out
+            .contains("【受信箱】")
+    );
+
+    // 空になれば項目も消える
+    for n in 0..6 {
+        assert!(f.ika(&["inbox", "rm", &format!("2026-10-2{n}")]).ok);
+    }
+    assert!(!f.ika(&["kb", "triage"]).out.contains("【受信箱】"));
+}
+
+// ---- 書いた直後の提案（ika new / ika kb write）と ika check の注意 ----
+
+fn note_with(title: &str, tags: &str, body: &str) -> String {
+    format!(
+        "---\ntitle: {title}\ntype: note\ndate: 2026-10-10\nprojects: [foo]\ntags: [{tags}]\n---\n\n{body}\n"
+    )
+}
+
+#[test]
+fn new_suggests_similar_notes_and_readme_links_on_stderr_only() {
+    let f = Fixture::new("suggest");
+    f.write(
+        "kb/tech/notes/2026/2026-10-10-photo.md",
+        &note_with("写真共有サービスの競合調査", "competitor", "本文"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-11-auth.md",
+        &note_with("認証の実装メモ", "auth", "本文"),
+    );
+    // type: source は照合しない
+    f.write(
+        "kb/tech/notes/2026/2026-10-12-src.md",
+        &note_with("写真共有サービスの競合調査", "competitor", "本文")
+            .replace("type: note", "type: source\nsource: x"),
+    );
+
+    let run = f.ika_with(
+        &[
+            "new",
+            "note",
+            "写真共有アプリの競合比較",
+            "-d",
+            "tech",
+            "-p",
+            "foo",
+            "-t",
+            "competitor",
+            "--slug",
+            "probe",
+            "--stdin",
+        ],
+        Some("本文\n"),
+    );
+    assert!(run.ok, "{}", run.err);
+    // R1・R7: 標準出力は作ったパスだけ。提案は標準エラー
+    let day = today();
+    assert_eq!(run.out.trim(), format!("kb/tech/notes/2026/{day}-probe.md"));
+    let err = run.err;
+    assert!(err.contains("似た既存のナレッジ"), "{err}");
+    assert!(
+        err.contains("2026-10-10-photo.md") && err.contains("[note] 2026-10-10"),
+        "{err}"
+    );
+    assert!(err.contains("共通の語:") && err.contains("写真"), "{err}");
+    assert!(err.contains("追記を"), "{err}");
+    // 無関係なもの・ソース・自分自身は出ない
+    assert!(
+        !err.contains("2026-10-11-auth.md") && !err.contains("2026-10-12-src.md"),
+        "{err}"
+    );
+    assert!(!err.contains(&format!("{day}-probe.md")), "{err}");
+    // R5: README にリンクが無いので候補に出る
+    assert!(
+        err.contains("README の「関連」に足す候補: kb/projects/foo/README.md"),
+        "{err}"
+    );
+}
+
+#[test]
+fn new_skips_readme_suggestion_when_already_linked_and_ignores_unrelated_titles() {
+    let f = Fixture::new("suggest-readme");
+    let day = today();
+    f.write(
+        "kb/projects/foo/README.md",
+        &format!(
+            "---\ntitle: foo\ntype: project\ndate: 2026-10-14\nprojects: [foo]\ntags: []\n---\n\n[x](../../tech/notes/{}/{day}-probe.md)\n",
+            &day[..4]
+        ),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-11-auth.md",
+        &note_with("認証の実装メモ", "auth", "本文"),
+    );
+    let run = f.ika_with(
+        &[
+            "new",
+            "note",
+            "支払いの返金処理",
+            "-d",
+            "tech",
+            "-p",
+            "foo",
+            "--slug",
+            "probe",
+            "--stdin",
+        ],
+        Some("本文\n"),
+    );
+    assert!(run.ok, "{}", run.err);
+    // 似たものも README の候補も無ければ、何も出ない
+    assert!(run.err.trim().is_empty(), "{}", run.err);
+}
+
+#[test]
+fn new_ignores_generic_words_in_big_kbs_but_keeps_specific_ones() {
+    let f = Fixture::new("suggest-generic");
+    for n in 0..30 {
+        f.write(
+            &format!("kb/tech/notes/2026/2026-10-{:02}-filler{n}.md", 1 + n % 9),
+            &note_with(
+                &format!("調査メモ {n} まとめ"),
+                "misc",
+                "調査の結果をまとめた",
+            ),
+        );
+    }
+    f.write(
+        "kb/tech/notes/2026/2026-10-10-token.md",
+        &note_with("認証トークンの更新調査", "auth", "本文"),
+    );
+    let new = |title: &str, slug: &str| {
+        f.ika_with(
+            &[
+                "new", "note", title, "-d", "tech", "--slug", slug, "--stdin",
+            ],
+            Some("本文\n"),
+        )
+    };
+    // 「調査」「まとめ」だけでは似ているとは言えない
+    let generic = new("調査まとめ", "generic");
+    assert!(
+        generic.ok && !generic.err.contains("似た既存"),
+        "{}",
+        generic.err
+    );
+    // 一般的な語（調査）を除いても、認証・トークンが共通なら出る
+    let specific = new("認証トークンの失効調査", "specific");
+    assert!(
+        specific.err.contains("2026-10-10-token.md") && !specific.err.contains("filler"),
+        "{}",
+        specific.err
+    );
+}
+
+#[test]
+fn kb_write_suggests_for_new_files_only_and_failures_never_break_the_write() {
+    let f = Fixture::new("suggest-write");
+    f.write(
+        "kb/tech/notes/2026/2026-10-10-photo.md",
+        &note_with("写真共有サービスの競合調査", "competitor", "本文"),
+    );
+    let text = note_with("写真共有アプリの競合比較", "competitor", "本文");
+    let run = f.ika_with(
+        &["kb", "write", "kb/tech/notes/2026/2026-10-20-w.md"],
+        Some(&text),
+    );
+    assert!(run.ok, "{}", run.err);
+    assert!(run.err.contains("2026-10-10-photo.md"), "{}", run.err);
+    assert!(!run.err.contains("2026-10-20-w.md"), "{}", run.err);
+
+    // R2: --overwrite では出さない
+    let again = f.ika_with(
+        &[
+            "kb",
+            "write",
+            "kb/tech/notes/2026/2026-10-20-w.md",
+            "--overwrite",
+        ],
+        Some(&text),
+    );
+    assert!(again.ok && !again.err.contains("似た既存"), "{}", again.err);
+
+    // R6: 索引を作れなくても書き込みは成功し、標準出力は変わらない
+    fs::remove_dir_all(f.root().join(".cache")).unwrap();
+    fs::write(
+        f.root().join(".cache"),
+        "ファイルがディレクトリの場所にある",
+    )
+    .unwrap();
+    let broken = f.ika_with(
+        &["kb", "write", "kb/tech/notes/2026/2026-10-21-w.md"],
+        Some(&text),
+    );
+    assert!(broken.ok, "{}", broken.err);
+    assert!(
+        broken.out.contains("書きました") && !broken.err.contains("似た既存"),
+        "{}",
+        broken.err
+    );
+    assert!(f.exists("kb/tech/notes/2026/2026-10-21-w.md"));
+}
+
+#[test]
+fn check_notes_recent_unlinked_notes_without_failing() {
+    let f = Fixture::new("check-notice");
+    let day = today();
+    let recent = |slug: &str| format!("kb/tech/notes/2026/{day}-{slug}.md");
+    let body = |title: &str, date: &str| {
+        NOTE.replace("title: n", &format!("title: {title}"))
+            .replace("date: 2026-10-14", &format!("date: {date}"))
+    };
+    f.write(&recent("lonely"), &body("孤立", &day));
+    f.write(&recent("linked"), &body("リンクあり", &day));
+    f.write(
+        "kb/tech/notes/2020/2020-01-01-old.md",
+        &body("古い孤立", "2020-01-01"),
+    );
+    f.write(
+        "kb/tech/insights/i.md",
+        &NOTE
+            .replace("本文", &format!("[x](../notes/2026/{day}-linked.md)"))
+            .replace("type: note", "type: insight"),
+    );
+    let run = f.ika(&["check"]);
+    // 注意が出ても成功し、OK も出る
+    assert!(run.ok && run.out.contains("OK（"), "{}", run.out);
+    assert!(
+        run.out.contains("注意（失敗にはしません）")
+            && run.out.contains(&format!("{day}-lonely.md")),
+        "{}",
+        run.out
+    );
+    assert!(
+        !run.out.contains("-linked.md") && !run.out.contains("2020-01-01-old.md"),
+        "{}",
+        run.out
+    );
+}
+
 // ---- ika install / ika check（プラグインの version）----
 
 #[cfg(unix)]
