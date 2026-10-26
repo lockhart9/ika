@@ -17,7 +17,7 @@ cycle の 6 の詳しい手順。書くのは「次に判断するとき・次�
 ## 要件書を閉じる
 
 ```bash
-ika kb cat kb/projects/<name>/specs/<slug>.md
+ika kb cat kb/projects/<name>/specs/<slug>.md --full
 ika kb edit kb/projects/<name>/specs/<slug>.md --old "status: approved" --new "status: done"
 ika kb edit kb/projects/<name>/specs/<slug>.md --old "- ブランチ:" --new "- ブランチ: feature/<slug>"
 ```

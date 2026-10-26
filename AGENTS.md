@@ -113,7 +113,7 @@ export IKA_HOME=<KB を置くディレクトリ>          # KB の場所。シ�
 ika init [--import <旧リポジトリ>]   # KB を作り、手元だけの git にする。--import は旧リポジトリの kb/・data/*.csv を取り込む
 ika project list                # 登録済みプロダクト
 ika project add <name> [--path <リポジトリのパス>] --summary "..."   # --path はコードのあるプロダクトだけ。事業・副業の検討なら省略
-ika project show <name> [--readme]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧
+ika project show <name> [--readme] [-n 20]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧（既定は20件まで。-n 0 で全件。--readme は全文）
 ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]   # 登録済みの項目を書き換える
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
@@ -124,8 +124,8 @@ ika import - --project <name> --source <URL> --title "..." [--format md|html|csv
 ika import <file> --print       # KB に書かず、変換した Markdown を表示する
 ika import --list [-p <name>]   # 取り込み済みの資料と原本の一覧
 ika kb ls [kb/tech]             # kb/ 配下の Markdown を一覧（パスは IKA_HOME 下の kb/ から。kb/ の外は操作できない）
-ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ
-ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では新しい日付が先
+ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ。8000字を超えるファイルは指定がなければ見出し一覧だけを出す（全文は --full。標準エラーに案内が出る）
+ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では新しい日付が先。出力は既定で20ファイル（-l と検索語なしは50）・1ファイル3行・1行160字までで、超えると標準エラーに件数を出す（-n で増やす、-n 0 で無制限。語が一般的だと信頼度順のまま後ろが切れるので、-p -d --type で絞る）
 ika kb grep -n -C2 'review|レビュー' kb/tech   # ripgrep で検索する（正規表現・文脈行・-g・--json など。要 rg）。パスは IKA_HOME からの相対で kb/ の中だけ（省略すると kb/ 全体）。rg のオプションは許可リストにあるものだけ通し、--pre・-z・-f・-L など外部コマンドを動かす・kb/ の外を読むものは拒否する
 ika kb fts 申請を取り下げたい [-d tech -p <name> -t <tag> --type ... --status ... --any -l -n 20]   # 日本語の形態素解析つきの全文検索（ika serve の検索画面が使う。エージェントの検索は kb search）。文でも引け、関連度順に並ぶ（上位20件。検索語なしは全件を新しい日付順）。語の途中でも当たる（2文字以上）。索引は IKA_HOME/.cache/fts/ にあり、検索のたびに変わったファイルだけ自動で入れ直す
 ika kb index [--rebuild]        # fts の索引に kb/ の変更を反映する / 一から作り直す
