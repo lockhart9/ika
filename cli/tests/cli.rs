@@ -1907,6 +1907,196 @@ fn orphans_says_so_when_everything_is_organized() {
     );
 }
 
+// ---- ika kb triage ----
+
+/// IKA_HOME 下の全ファイルの中身（読み取り専用の確認用）
+fn snapshot(dir: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                let bytes = fs::read(&path).unwrap();
+                out.push((path, bytes));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// foo のリポジトリ（README より後のコミットが1件）と、未整理のノート・知見のある KB
+fn triage_fixture(name: &str) -> Fixture {
+    let f = Fixture::new(name);
+    let repo = f.dir.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["commit", "-q", "--allow-empty", "-m", "after readme"],
+    ] {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.test"])
+            .args(&args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+    f.write(
+        "data/projects.csv",
+        &format!(
+            "name,path,url,status,summary\nfoo,{},,active,Foo\nbar,,,active,Bar\n",
+            repo.display()
+        ),
+    );
+    f.write(
+        "kb/projects/bar/README.md",
+        "---\ntitle: bar\ntype: project\ndate: 2026-10-14\nprojects: [bar]\ntags: []\n---\n\n# bar\n",
+    );
+    let note = |slug: &str, date: &str, projects: &str, tags: &str| {
+        f.write(
+            &format!("kb/tech/notes/2026/{date}-{slug}.md"),
+            &format!(
+                "---\ntitle: note {slug}\ntype: note\ndate: {date}\nprojects: {projects}\ntags: [{tags}]\n---\n\n本文\n"
+            ),
+        );
+    };
+    // foo: a・b・c・two の 4 件（auth を 3 件が共有）。bar: two・x の 2 件
+    note("a", "2026-10-14", "[foo]", "auth");
+    note("b", "2026-10-15", "[foo]", "auth");
+    note("c", "2026-10-16", "[foo]", "auth, infra");
+    note("two", "2026-10-17", "[foo, bar]", "infra");
+    note("x", "2026-10-18", "[bar]", "");
+    // 知見（2026-10-01）は、auth の新しいノートをまだ取り込んでいない
+    f.write(
+        "kb/tech/insights/auth.md",
+        "---\ntitle: 認証の知見\ntype: insight\ndate: 2026-10-01\nprojects: [foo]\ntags: [auth]\n---\n\n本文\n",
+    );
+    f
+}
+
+#[test]
+fn triage_ranks_distill_then_insight_then_readme_and_explains_each() {
+    let f = triage_fixture("triage");
+    let before = snapshot(&f.root());
+    let run = f.ika(&["kb", "triage"]);
+    assert!(run.ok, "{}", run.err);
+    let out = run.out;
+
+    // R2: 蒸留 → 知見 → README の順。番号つき
+    let distill = out.find("1. 【蒸留】foo").expect(&out);
+    let insight = out.find("2. 【知見】").expect(&out);
+    let readme = out.find("3. 【README】foo").expect(&out);
+    assert!(distill < insight && insight < readme, "{out}");
+    assert!(out.contains("今週やること（3 件）"), "{out}");
+
+    // R3: 4 件の foo は項目、2 件の bar は様子見
+    assert!(out.contains("foo  未整理のノート 4 件"), "{out}");
+    assert!(
+        out.contains("様子見（未整理のノートが 3 件未満）: bar 2 件"),
+        "{out}"
+    );
+    assert!(!out.contains("【蒸留】bar"), "{out}");
+
+    // R4: 3 件が共有する auth と、2 件が共有する infra が候補。1 件だけのタグは出ない
+    assert!(
+        out.contains("まとめ方の候補: #auth（3 件）、#infra（2 件）"),
+        "{out}"
+    );
+    // R5: 複数プロダクトのノートに、もう一方のプロダクト名が付く
+    assert!(out.contains("note two（ほか bar にも関連）"), "{out}");
+    assert!(!out.contains("note a（ほか"), "{out}");
+
+    // R6: 直し方
+    assert!(out.contains("distill.md"), "{out}");
+    assert!(out.contains("project-sync"), "{out}");
+
+    // 同じ入力なら同じ出力。KB には何も書かない（R10）
+    assert_eq!(f.ika(&["kb", "triage"]).out, out);
+    assert_eq!(snapshot(&f.root()), before);
+}
+
+#[test]
+fn triage_min_moves_watched_projects_into_the_list() {
+    let f = triage_fixture("triage-min");
+    let out = f.ika(&["kb", "triage", "--min", "2"]).out;
+    // bar（2 件）が番号に入り、foo（4 件）のあとに並ぶ
+    let foo = out.find("1. 【蒸留】foo").expect(&out);
+    let bar = out.find("2. 【蒸留】bar").expect(&out);
+    assert!(foo < bar, "{out}");
+    assert!(!out.contains("様子見"), "{out}");
+    assert!(out.contains("note two（ほか foo にも関連）"), "{out}");
+}
+
+#[test]
+fn triage_limit_hides_the_rest_and_points_to_orphans_and_stale() {
+    let f = triage_fixture("triage-limit");
+    let out = f.ika(&["kb", "triage", "--limit", "1"]).out;
+    assert!(out.contains("今週やること（上位 1 件 / 全 3 件）"), "{out}");
+    assert!(out.contains("1. 【蒸留】foo"), "{out}");
+    assert!(!out.contains("2. "), "{out}");
+    assert!(
+        out.contains("ほか 2 件") && out.contains("ika kb orphans") && out.contains("ika kb stale"),
+        "{out}"
+    );
+    let all = f.ika(&["kb", "triage", "--limit", "20"]).out;
+    assert!(
+        all.contains("3. 【README】foo") && !all.contains("ほか 2 件"),
+        "{all}"
+    );
+}
+
+#[test]
+fn triage_project_filter_and_stale_options_are_passed_through() {
+    let f = triage_fixture("triage-project");
+    let out = f.ika(&["kb", "triage", "-p", "bar", "--min", "2"]).out;
+    assert!(out.contains("【蒸留】bar"), "{out}");
+    assert!(
+        !out.contains("【蒸留】foo") && !out.contains("【README】"),
+        "{out}"
+    );
+
+    // 古い価格のノートを根拠にする決定。--days と --volatile が stale と同じに効く
+    f.write(
+        "kb/tech/notes/2020/2020-01-01-cost.md",
+        "---\ntitle: 古いコスト\ntype: note\ndate: 2020-01-01\nprojects: [foo]\ntags: [cost]\n---\n\n本文\n",
+    );
+    f.write(
+        "kb/tech/decisions/2020-02-01-d.md",
+        "---\ntitle: d\ntype: decision\ndate: 2020-02-01\nprojects: [foo]\ntags: []\nstatus: accepted\n---\n\n[根拠](../notes/2020/2020-01-01-cost.md)\n",
+    );
+    let default = f.ika(&["kb", "triage", "-p", "foo"]).out;
+    assert!(
+        default.contains("【根拠】") && default.contains("古いコスト"),
+        "{default}"
+    );
+    let narrow = f
+        .ika(&["kb", "triage", "-p", "foo", "--volatile", "pricing"])
+        .out;
+    assert!(!narrow.contains("【根拠】"), "{narrow}");
+}
+
+#[test]
+fn triage_says_so_when_there_is_nothing_to_do() {
+    let f = Fixture::new("triage-none");
+    f.write("kb/tech/notes/2026/2026-10-14-a.md", NOTE);
+    f.write(
+        "kb/tech/insights/i.md",
+        &NOTE
+            .replace("本文", "[a](../notes/2026/2026-10-14-a.md)")
+            .replace("type: note", "type: insight"),
+    );
+    let run = f.ika(&["kb", "triage"]);
+    assert!(run.ok, "{}", run.err);
+    assert_eq!(run.out.trim(), "今週やることはありません");
+}
+
 // ---- ika install / ika check（プラグインの version）----
 
 #[cfg(unix)]

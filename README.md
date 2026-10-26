@@ -110,6 +110,7 @@ ika kb fts 申請を取り下げたい -d tech        # 全文検索（日本語
 ika kb search キーワード --any -d tech        # 文字列をそのまま含むかで検索（信頼度順。採用済みの決定が先に出る）
 ika kb orphans                                # どこからもリンクされていないノート（蒸留の候補）
 ika kb stale                                  # 古くなっていそうなナレッジ（リポジトリより古い README、古い価格・競合を根拠にした決定など）
+ika kb triage                                 # 上の2つをまとめ、優先順位つきの「今週やること」にする
 ika project add <name> --summary "一行説明"   # プロダクトを登録
 ika data sql "select ..."                     # 表形式データを集計
 ika check                                     # KB を検証

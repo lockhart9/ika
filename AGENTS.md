@@ -74,7 +74,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 ## ノートを溜めたとき
 
-- note は生のログ。溜めてよいが、溜まったら `ika kb orphans` で未整理を確認し、複数のノートから言えることは insight に書き直す（ノートのコピーはしない。手順は `capture` スキルの `references/distill.md`）
+- note は生のログ。溜めてよいが、溜まったら `ika kb triage`（未整理と古いものを優先順位つきでまとめる。`ika kb orphans` は未整理だけ）で確認し、複数のノートから言えることは insight に書き直す（ノートのコピーはしない。手順は `capture` スキルの `references/distill.md`）
 - 現状の設計・仕様・スキーマ（変わると古くなるもの）は note ではなく、`kb/projects/<name>/` の README か資料に書く
 
 ## ナレッジを探すとき
@@ -129,6 +129,7 @@ ika kb fts 申請を取り下げたい [-d tech -p <name> -t <tag> --type ... --
 ika kb index [--rebuild]        # fts の索引に kb/ の変更を反映する / 一から作り直す
 ika kb orphans [-p <name>] [--min 3]   # どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートをプロダクト別に数える（蒸留の候補）
 ika kb stale [-p <name>] [--days 90] [--volatile pricing,competitor,...]   # 古くなっていそうなナレッジを洗い出す: リポジトリより古い README（git log を読むだけ）、その後のノートを取り込んでいない知見、古い価格・競合などのノートを根拠にした知見・決定・要件書・README、原本が変わった・消えた取り込み資料（手元のファイルだけ）。項目ごとに直し方を出す
+ika kb triage [-p <name>] [--limit 10] [--min 3] [--days 90] [--volatile ...]   # orphans と stale をまとめ、優先順位つき（蒸留 → 知見の更新 → README → 根拠の確かめ直し → 取り込み直し。同種は件数順）の「今週やること」にする。読むだけで何も書かない。未整理が --min 件未満のプロダクトは「様子見」
 ika kb write <path> [--overwrite]   # 標準入力の全文でファイルを作る
 ika kb append <path>                # 標準入力を末尾に足す
 ika kb edit <path> --old "..." --new "..." [--all]   # --old は1か所に一致する必要がある
