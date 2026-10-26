@@ -23,6 +23,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `kb/projects/<name>/README.md` | プロダクトの概要（ビジネスと技術の両面）。1プロダクト1ディレクトリ |
 | `kb/projects/<name>/specs/` | 要件書（`type: spec`。機能ごと。`cycle` スキルが作り、実装後に今の形へ直す） |
 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 取り込んだ外部の資料の全文（`type: source`。`ika import` が作り、取り込み直すと上書きされる。直接編集しない） |
+| `inbox/YYYY-MM-DD.md` | 受信箱。`ika capture` で判断なしに溜めた生のメモ（`## HH:MM` で区切って追記。フロントマターなし）。`kb/` の外なので検索・`ika check`・`export`・`serve` に出ない。整理してノートにしたら `ika inbox rm`。`ika inbox` だけで読み書きする |
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
 | `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない。Markdown からいつでも作り直せる |
@@ -74,7 +75,8 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 ## ノートを溜めたとき
 
-- note は生のログ。溜めてよいが、溜まったら `ika kb orphans` で未整理を確認し、複数のノートから言えることは insight に書き直す（ノートのコピーはしない。手順は `capture` スキルの `references/distill.md`）
+- 領域などを決める前にとにかく残したいものは `ika capture "メモ"`（受信箱）。`ika kb triage` の先頭に出るので、`capture` スキルの `references/inbox.md` でノートに振り分ける
+- note は生のログ。溜めてよいが、溜まったら `ika kb triage`（未整理と古いものを優先順位つきでまとめる。`ika kb orphans` は未整理だけ）で確認し、複数のノートから言えることは insight に書き直す（ノートのコピーはしない。手順は `capture` スキルの `references/distill.md`）
 - 現状の設計・仕様・スキーマ（変わると古くなるもの）は note ではなく、`kb/projects/<name>/` の README か資料に書く
 
 ## ナレッジを探すとき
@@ -115,7 +117,7 @@ ika project show <name> [--readme]   # 登録情報と、projects: にそのプ�
 ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]   # 登録済みの項目を書き換える
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
-ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須
+ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須。作った直後に標準エラーへ、似た既存のナレッジ（上位3件。タイトルとタグの語から fts で探す）と、リンクを足す README の候補を出す（標準出力は作ったパスだけ。`ika kb write` の新規作成も同じ）
 ika new spec "タイトル" --project <name> --slug <英字> [--stdin]   # 要件書を kb/projects/<name>/specs/ に作る（--domain は付けない。status: draft で始まる）
 ika import <file>... --project <name> | --domain <領域> [--project ...] [--tags ...] [--slug ...] [--title ...] [--source <URL>]   # 外部のドキュメント（md・html・csv・docx・xlsx・xls・ods・pptx・pdf）を Markdown にして sources/ に全文で置く。変換は Rust だけで行う。同じ source で取り込み直すと、変わっていたときだけ上書きする
 ika import - --project <name> --source <URL> --title "..." [--format md|html|csv]   # 標準入力から（Drive・Notion の MCP で取った本文など）
@@ -129,6 +131,9 @@ ika kb fts 申請を取り下げたい [-d tech -p <name> -t <tag> --type ... --
 ika kb index [--rebuild]        # fts の索引に kb/ の変更を反映する / 一から作り直す
 ika kb orphans [-p <name>] [--min 3]   # どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートをプロダクト別に数える（蒸留の候補）
 ika kb stale [-p <name>] [--days 90] [--volatile pricing,competitor,...]   # 古くなっていそうなナレッジを洗い出す: リポジトリより古い README（git log を読むだけ）、その後のノートを取り込んでいない知見、古い価格・競合などのノートを根拠にした知見・決定・要件書・README、原本が変わった・消えた取り込み資料（手元のファイルだけ）。項目ごとに直し方を出す
+ika capture "メモ" | ika capture --stdin   # 領域・プロダクト・タグを決めずに IKA_HOME/inbox/YYYY-MM-DD.md へ即保存（URL も文字のまま。取得はしない）。書き込みは自動でコミットされる
+ika inbox ls [--date YYYY-MM-DD] | rm <YYYY-MM-DD>   # 受信箱を全文で読む / 整理し終えた日を消す
+ika kb triage [-p <name>] [--limit 10] [--min 3] [--days 90] [--volatile ...]   # orphans と stale をまとめ、優先順位つき（受信箱 → 蒸留 → 知見の更新 → README → 根拠の確かめ直し → 取り込み直し。同種は件数順）の「今週やること」にする。読むだけで何も書かない。未整理が --min 件未満のプロダクトは「様子見」
 ika kb write <path> [--overwrite]   # 標準入力の全文でファイルを作る
 ika kb append <path>                # 標準入力を末尾に足す
 ika kb edit <path> --old "..." --new "..." [--all]   # --old は1か所に一致する必要がある
@@ -141,7 +146,7 @@ ika data sql "select ..." [--json]  # 読み取り専用で SELECT（テーブ�
 ika data export <name>              # CSV で標準出力へ
 ika data delete <name> --where "..." / rm <name>   # 行の訂正は消して追記し直す / データセットごと消す
 ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる。検索語は結果の抜粋と、そこから開いたページ（`?hl=`）で黄色くハイライトする
-ika check                       # KB・登録簿・データセット定義・図の記法の検証。リポジトリ内で実行するとプラグインも検証する
+ika check                       # KB・登録簿・データセット定義・図の記法の検証。14 日以内のノートでどこからもリンクされていないものは「注意」に出す（失敗にはしない）。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
 ika export claude [--with-kb] [--domain <領域>]... [--no-projects] [--with-sources]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る

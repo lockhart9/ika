@@ -125,6 +125,7 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
     kb::atomic::create_new(&path, &content)?;
     let rel = path.strip_prefix(root).unwrap_or(&path);
     println!("{}", rel.display());
+    kb::suggest::after_write(root, rel, &content);
     vcs::commit(
         root,
         &format!("new {}: {}", args.kind.template(), rel.display()),

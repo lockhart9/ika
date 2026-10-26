@@ -79,6 +79,8 @@ status: accepted      # decision と spec のみ必須。decision: proposed | ac
 | 外部のドキュメントそのもの | source（`ika import`）。全文は写しとして置き、判断に使う要点は上のどれかに書き起こす |
 | これから作るもの・作ったものの要件 | spec（`ika new spec "タイトル" --project <name> --slug <英字>`）。方式の選択など判断が要る点は decision にして要件書からリンクする |
 
+まだ領域もプロダクトも決められないメモは、`ika capture` で `IKA_HOME/inbox/YYYY-MM-DD.md`（`kb/` の外。フロントマターなし）に溜めておき、後でノートに振り分ける。
+
 ノートは溜めてよいが、溜まったら `ika kb orphans` で、どの insight・decision・プロダクトの資料（README を除く）からもリンクされていないノートを確認し、insight に蒸留する。README の「関連」は索引なので、整理済みとは数えない。
 
 ## 図

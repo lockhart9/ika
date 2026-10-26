@@ -21,6 +21,8 @@ pub mod grep;
 pub mod orphans;
 pub mod search;
 pub mod stale;
+pub mod suggest;
+pub mod triage;
 
 #[derive(Subcommand)]
 pub enum Command {
@@ -48,6 +50,9 @@ pub enum Command {
     /// 古くなっていそうなナレッジを洗い出す（リポジトリより古い README、新しいノートを取り込んでいない知見、
     /// 古い価格・競合などを根拠にした資料、原本が変わった取り込み資料）
     Stale(stale::Args),
+    /// 未整理のノートと古くなっていそうなナレッジを、優先順位つきの「今週やること」にまとめる
+    /// （`orphans` と `stale` の判定を使う。読むだけで何も書かない）
+    Triage(triage::Args),
     /// ファイルの中身を表示する。--outline・--section・--lines・--frontmatter で一部だけ読める
     Cat(cat::Args),
     /// 標準入力の内容でファイルを作る（フロントマターを含む全文）
@@ -108,6 +113,7 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
         Command::Grep(args) => grep::run(root, args)?,
         Command::Orphans(args) => orphans::run(root, args)?,
         Command::Stale(args) => stale::run(root, args)?,
+        Command::Triage(args) => triage::run(root, args)?,
         Command::Cat(args) => cat::run(root, args)?,
         Command::Write { path, overwrite } => {
             let rel = resolve(root, &path)?;
@@ -127,6 +133,9 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
                 atomic::create_new(&abs, &text)?;
             }
             done(root, "書きました", &rel, &text)?;
+            if !overwrite {
+                suggest::after_write(root, &rel, &text);
+            }
             vcs::commit(root, &format!("kb write {}", rel.display()));
         }
         Command::Append { path } => {
