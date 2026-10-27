@@ -1187,6 +1187,7 @@ impl Fixture {
         fs::create_dir_all(repo.join("docs")).unwrap();
         fs::write(repo.join("AGENTS.md"), "# 指示\n").unwrap();
         fs::write(repo.join("docs/kb-format.md"), "# 書式\n").unwrap();
+        fs::write(repo.join("docs/diagrams.md"), "# 図の記法\n").unwrap();
         fs::write(
             repo.join("plugins/ika/skills/demo/SKILL.md"),
             "---\nname: demo\ndescription: デモ\n---\n\n本文\n",
@@ -1319,6 +1320,102 @@ fn export_chatgpt_honors_the_same_scope() {
     assert!(out.join("knowledge-business.md").is_file());
     assert!(!out.join("knowledge-tech.md").exists());
     assert!(!out.join("knowledge-projects.md").exists());
+}
+
+/// このリポジトリの AGENTS.md・書式・全スキルを写した ika リポジトリ（指示の大きさを実物で測る）
+fn real_repo(f: &Fixture) -> PathBuf {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let repo = f.dir.join("repo");
+    fs::create_dir_all(repo.join("docs")).unwrap();
+    for rel in ["AGENTS.md", "docs/kb-format.md", "docs/diagrams.md"] {
+        fs::copy(src.join(rel), repo.join(rel)).unwrap();
+    }
+    for entry in fs::read_dir(src.join("plugins/ika/skills")).unwrap() {
+        let dir = entry.unwrap().path();
+        if dir.join("SKILL.md").is_file() {
+            let dest = repo
+                .join("plugins/ika/skills")
+                .join(dir.file_name().unwrap());
+            fs::create_dir_all(&dest).unwrap();
+            fs::copy(dir.join("SKILL.md"), dest.join("SKILL.md")).unwrap();
+        }
+    }
+    repo
+}
+
+#[test]
+fn exported_instructions_leave_out_repo_only_sections() {
+    let f = Fixture::new("export-repo-only");
+    f.kb_with_two_domains();
+    let repo = real_repo(&f);
+
+    let run = f.run_in(&repo, &["export", "chatgpt"], None, Some(f.root()));
+    assert!(run.ok, "{}", run.err);
+    let out = dist(&f, "chatgpt");
+    let instructions = fs::read_to_string(out.join("instructions.md")).unwrap();
+    for dropped in [
+        "## CLI",
+        "## 開発",
+        "## スキルを足す・直すとき",
+        "repo-only",
+    ] {
+        assert!(!instructions.contains(dropped), "{dropped}");
+    }
+    assert!(instructions.contains("## 守ること"));
+    assert!(instructions.contains("## ChatGPT での使い方"));
+    // 指示欄の上限は非公開（カスタム GPT は 8,000 字という報告）。余裕を見て 6,000 字に収める
+    let chars = instructions.chars().count();
+    assert!(chars <= 6000, "ChatGPT の指示が {chars} 字");
+    // 図の記法は書式と一緒にプロジェクトファイルへ
+    let skills = fs::read_to_string(out.join("skills.md")).unwrap();
+    assert!(skills.contains("## 図の記法（references/diagrams.md）"));
+    assert!(skills.contains("```flow"));
+
+    let run = f.run_in(
+        &repo,
+        &["export", "claude", "--with-kb"],
+        None,
+        Some(f.root()),
+    );
+    assert!(run.ok, "{}", run.err);
+    let instructions = fs::read_to_string(dist(&f, "claude").join("instructions.md")).unwrap();
+    assert!(!instructions.contains("## CLI") && !instructions.contains("repo-only"));
+    assert!(instructions.contains("## claude.ai での使い方"));
+}
+
+#[test]
+fn export_fails_on_an_unclosed_repo_only_marker() {
+    let f = Fixture::new("export-repo-only-broken");
+    f.kb_with_two_domains();
+    let repo = f.repo();
+    fs::write(
+        repo.join("AGENTS.md"),
+        "# 指示\n<!-- repo-only -->\n## 開発\n",
+    )
+    .unwrap();
+    let run = f.run_in(&repo, &["export", "chatgpt"], None, Some(f.root()));
+    assert!(!run.ok);
+    assert!(run.err.contains("閉じていません"), "{}", run.err);
+}
+
+/// ika のリポジトリにいる間ずっと読み込まれる指示と、スキルが毎回読む書式の大きさ
+#[test]
+fn resident_instructions_stay_small() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    for (rel, max) in [("AGENTS.md", 7000), ("docs/kb-format.md", 4000)] {
+        let chars = fs::read_to_string(root.join(rel)).unwrap().chars().count();
+        assert!(chars <= max, "{rel} が {chars} 字（上限 {max}）");
+    }
+    // CLI の一覧と図の記法は、必要なときだけ読む別ファイルにある
+    let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(agents.contains("docs/cli.md"));
+    let format = fs::read_to_string(root.join("docs/kb-format.md")).unwrap();
+    assert!(format.contains("[diagrams.md](diagrams.md)"));
+    assert!(!format.contains("| `seq` |"));
+    for skill in ["capture", "cycle"] {
+        let text = plugin_file(&format!("skills/{skill}/SKILL.md"));
+        assert!(text.contains("(references/diagrams.md)"), "{skill}");
+    }
 }
 
 // ---- ika serve ----

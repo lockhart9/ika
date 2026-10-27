@@ -102,7 +102,7 @@ ika install             # Claude Code と Codex に登録して入れる
 | `import` | 「この仕様書を取り込んで」「Notion のページを KB に入れて」 | 外部のドキュメント（リポジトリの Markdown・Drive・Notion・docx・xlsx・pptx・pdf・html）を Markdown にして全文で取り込み、要点を書き起こす |
 | `cycle` | 「〜を調べて作って」「次の打ち手を進めて」 | 調査 → 要件 → 実装 → テスト → コミットを回し、各段階の結果を KB に戻す。要件の承認で1回だけ止まる |
 
-CLI を直接使う場合のよく使うコマンドです。全コマンドは `ika --help` で見られます。
+CLI を直接使う場合のよく使うコマンドです。全コマンドは [docs/cli.md](docs/cli.md) と `ika --help` で見られます。
 
 ```bash
 ika new note "タイトル" --domain tech --project <name> --tags a,b --stdin   # ノートを作る（本文は標準入力）
@@ -135,7 +135,7 @@ ika export html --project foo --open                  # プロダクトの READM
 ika export html --all                                 # KB 全体（IKA_HOME/.cache/html/index.html が入口）
 ```
 
-図の書き方は [docs/kb-format.md](docs/kb-format.md) の「図」。見た目は `IKA_HOME/theme/style.css` で色・フォントの変数を上書きできます。
+図の書き方は [docs/diagrams.md](docs/diagrams.md)。見た目は `IKA_HOME/theme/style.css` で色・フォントの変数を上書きできます。
 
 <details>
 <summary>セキュリティ上の挙動（クリックで開く）</summary>
@@ -192,7 +192,7 @@ ika domain add <name> --summary "何を置く領域か"    # business・tech 以
 
 ```
 AGENTS.md          全クライアント共通の指示の正本（CLAUDE.md はこれを読み込むだけ）
-docs/              KB・登録簿の書式の正本
+docs/              KB・登録簿の書式（kb-format.md・data-format.md）、図の記法（diagrams.md）、CLI の全コマンド（cli.md）の正本
 templates/         ノートのひな形（ビルド時にバイナリへ埋め込む）
 plugins/ika/       ika プラグイン（Claude・OpenAI 共通）
   skills/<name>/     スキル。references/・assets/ は ika sync が正本からコピー

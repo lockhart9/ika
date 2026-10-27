@@ -26,6 +26,7 @@ const MARKETPLACES: &[&str] = &[
 /// インストール時にプラグイン外へのシンボリックリンクは辿られないため、実ファイルとしてコピーする
 const SHARED: &[(&str, &str, Option<&[&str]>)] = &[
     ("docs/kb-format.md", "references/kb-format.md", None),
+    ("docs/diagrams.md", "references/diagrams.md", None),
     ("templates/note.md", "assets/note.md", Some(&["capture"])),
     (
         "templates/insight.md",
@@ -75,7 +76,7 @@ fn shared_copies(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
     Ok(copies)
 }
 
-/// 正本（docs/kb-format.md・templates/）をスキルの references/・assets/ にコピーする
+/// 正本（docs/kb-format.md・docs/diagrams.md・templates/）をスキルの references/・assets/ にコピーする
 pub fn sync(root: &Path) -> Result<()> {
     let mut changed = 0;
     for (source, dest) in shared_copies(root)? {
