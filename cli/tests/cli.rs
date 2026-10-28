@@ -517,6 +517,279 @@ fn kb_stale_finds_outdated_readmes_insights_evidence_and_sources() {
     );
 }
 
+/// 今日から `n` 日前の日付
+fn days_ago(n: i64) -> String {
+    (chrono::Local::now().date_naive() - chrono::Duration::days(n))
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+/// `date:` の次に `reviewed:` を足したノート
+fn note_reviewed(reviewed: &str) -> String {
+    NOTE.replace(
+        "date: 2026-10-14\n",
+        &format!("date: 2026-10-14\nreviewed: {reviewed}\n"),
+    )
+}
+
+#[test]
+fn check_validates_the_reviewed_date() {
+    let f = Fixture::new("check-reviewed");
+    let path = "kb/tech/notes/2026/2026-10-14-a.md";
+    f.write(path, &note_reviewed("2026-10-20"));
+    let run = f.ika(&["check"]);
+    assert!(run.ok && run.out.contains("OK（"), "{}{}", run.out, run.err);
+
+    // 付いていないファイルは今までどおり通る
+    f.write(path, NOTE);
+    assert!(f.ika(&["check"]).ok);
+
+    for bad in ["来週", "", "2999-01-01", "2026-1-5"] {
+        f.write(path, &note_reviewed(bad));
+        let run = f.ika(&["check"]);
+        let all = format!("{}{}", run.out, run.err);
+        assert!(!run.ok && all.contains("reviewed"), "{bad:?}: {all}");
+    }
+}
+
+#[test]
+fn review_sets_the_date_after_date_and_commits_once() {
+    let f = Fixture::new("review-set");
+    let a = "kb/tech/notes/2026/2026-10-14-a.md";
+    let b = "kb/tech/notes/2026/2026-10-14-b.md";
+    f.write(a, NOTE);
+    f.write(b, NOTE);
+    // 履歴は git のリポジトリのときだけ残る。書く前の状態を最初のコミットにする
+    f.git(&["init", "-q"]);
+    f.git(&["add", "-A"]);
+    f.git(&[
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.test",
+        "commit",
+        "-q",
+        "-m",
+        "first",
+    ]);
+    let commits = || f.git(&["rev-list", "--count", "HEAD"]).trim().to_string();
+    let before = commits();
+
+    let run = f.ika(&["kb", "review", a, b]);
+    assert!(run.ok, "{}", run.err);
+    let day = today();
+    for path in [a, b] {
+        assert_eq!(
+            f.read(path),
+            NOTE.replace(
+                "date: 2026-10-14\n",
+                &format!("date: 2026-10-14\nreviewed: {day}\n")
+            ),
+            "{path}"
+        );
+    }
+    assert!(f.ika(&["check"]).ok);
+    // 複数のファイルでも 1 コミット。メッセージにコマンドとパスが入る
+    assert_eq!(
+        commits().parse::<i64>().unwrap(),
+        before.parse::<i64>().unwrap() + 1
+    );
+    let subject = f.git(&["log", "-1", "--format=%s"]);
+    assert!(
+        subject.contains("kb review") && subject.contains(a),
+        "{subject}"
+    );
+
+    // 日付を指定して付け直すと、1 行のまま置き換わる。ほかは変わらない
+    let earlier = days_ago(3);
+    let run = f.ika(&["kb", "review", a, "--date", &earlier]);
+    assert!(run.ok, "{}", run.err);
+    let text = f.read(a);
+    assert_eq!(text.matches("reviewed:").count(), 1);
+    assert!(
+        text.contains(&format!("reviewed: {earlier}\nprojects")),
+        "{text}"
+    );
+    assert!(text.ends_with("---\n\n本文\n"));
+}
+
+#[test]
+fn review_refuses_bad_input_and_writes_nothing() {
+    let f = Fixture::new("review-refuse");
+    let note = "kb/tech/notes/2026/2026-10-14-a.md";
+    let source = "kb/projects/foo/sources/doc.md";
+    let bare = "kb/tech/notes/2026/2026-10-14-bare.md";
+    f.write(note, NOTE);
+    f.write(
+        source,
+        "---\ntitle: s\ntype: source\ndate: 2026-10-14\nprojects: [foo]\ntags: []\nsource: https://example.com\n---\n\n原本\n",
+    );
+    f.write(bare, "フロントマターなし\n");
+    let before = snapshot(&f.root());
+
+    for date in ["来週", "2999-01-01"] {
+        let run = f.ika(&["kb", "review", note, "--date", date]);
+        assert!(!run.ok && run.err.contains("--date"), "{date}: {}", run.err);
+    }
+    // 1つでも付けられなければ、付けられるほうも書かない
+    for bad in [source, bare, "kb/tech/notes/2026/missing.md"] {
+        let run = f.ika(&["kb", "review", note, bad]);
+        assert!(!run.ok, "{bad}");
+    }
+    let run = f.ika(&["kb", "review", note, source]);
+    assert!(run.err.contains("type: source"), "{}", run.err);
+    assert_eq!(snapshot(&f.root()), before);
+}
+
+#[test]
+fn review_makes_stale_and_triage_skip_what_was_checked() {
+    let f = triage_fixture("review-stale");
+    let readme = "kb/projects/foo/README.md";
+    let insight = "kb/tech/insights/auth.md";
+    let stale = || f.ika(&["kb", "stale", "-p", "foo"]).out;
+    let triage = || f.ika(&["kb", "triage"]).out;
+
+    // 確かめる前: README（その後のコミット 1 件）と知見（その後のノート 3 件）が出る
+    let out = stale();
+    assert!(
+        out.contains("foo  README 2026-10-14 · その後のコミット 1 件"),
+        "{out}"
+    );
+    assert!(
+        out.contains("認証の知見") && out.contains("その後のノート 3 件"),
+        "{out}"
+    );
+    let out = triage();
+    assert!(
+        out.contains("【README】foo") && out.contains("【知見】"),
+        "{out}"
+    );
+
+    // 確かめた日が最後のコミット・ノートより後なら出ない（R6・R7・R10）
+    let run = f.ika(&["kb", "review", readme, insight]);
+    assert!(run.ok, "{}", run.err);
+    let out = stale();
+    assert!(
+        !out.contains("README") && !out.contains("認証の知見"),
+        "{out}"
+    );
+    let out = triage();
+    assert!(
+        !out.contains("【README】") && !out.contains("【知見】"),
+        "{out}"
+    );
+
+    // 確かめた日より後に新しいコミットがあれば、また出る。項目に確認日が添う（R6・R9）
+    let yesterday = days_ago(1);
+    f.ika(&["kb", "review", readme, "--date", &yesterday]);
+    let out = stale();
+    assert!(
+        out.contains(&format!(
+            "foo  README 2026-10-14（確認 {yesterday}） · その後のコミット 1 件"
+        )),
+        "{out}"
+    );
+
+    // 確かめた日より新しいノートが増えれば、その分だけ出る（R7・R9）
+    f.ika(&["kb", "review", insight, "--date", "2026-10-16"]);
+    let out = stale();
+    assert!(
+        !out.contains("認証の知見"),
+        "2026-10-16 以前のノートは確かめ済み: {out}"
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-20-d.md",
+        &NOTE
+            .replace("date: 2026-10-14", "date: 2026-10-20")
+            .replace("title: n", "title: note d"),
+    );
+    let out = stale();
+    assert!(
+        out.contains("2026-10-01（確認 2026-10-16）  認証の知見")
+            && out.contains("その後のノート 1 件"),
+        "{out}"
+    );
+    assert!(
+        out.contains("2026-10-20-d.md") && !out.contains("2026-10-15-b.md"),
+        "{out}"
+    );
+}
+
+#[test]
+fn review_resets_the_clock_of_volatile_evidence() {
+    let f = Fixture::new("review-volatile");
+    let price = "kb/tech/notes/2020/2020-01-01-price.md";
+    f.write(
+        price,
+        &NOTE
+            .replace("date: 2026-10-14", "date: 2020-01-01")
+            .replace("tags: [auth]", "tags: [pricing]"),
+    );
+    f.write(
+        "kb/tech/decisions/2020-02-01-a.md",
+        "---\ntitle: d\ntype: decision\ndate: 2020-02-01\nprojects: [foo]\ntags: []\nstatus: accepted\n---\n\n[根拠](../notes/2020/2020-01-01-price.md)\n",
+    );
+    let stale = || f.ika(&["kb", "stale"]).out;
+    assert!(stale().contains("2020-01-01-price.md"), "{}", stale());
+
+    // 10 日前に確かめたので出ない
+    f.ika(&["kb", "review", price, "--date", &days_ago(10)]);
+    let out = stale();
+    assert!(!out.contains("2020-01-01-price.md"), "{out}");
+    // 100 日前に確かめたのでは足りない（既定は 90 日）。確認日が添う
+    let old = days_ago(100);
+    f.ika(&["kb", "review", price, "--date", &old]);
+    let out = stale();
+    assert!(out.contains(&format!("2020-01-01（確認 {old}）")), "{out}");
+    // 日数を変えれば同じ確認日でも出なくなる
+    let out = f.ika(&["kb", "stale", "--days", "200"]).out;
+    assert!(!out.contains("2020-01-01-price.md"), "{out}");
+}
+
+#[test]
+fn search_and_serve_show_the_confirmation_date() {
+    let f = Fixture::new("review-display");
+    let checked = "kb/tech/notes/2026/2026-10-14-checked.md";
+    let plain = "kb/tech/notes/2026/2026-10-14-plain.md";
+    let old = "kb/tech/notes/2026/2026-10-14-older.md";
+    let reviewed = days_ago(5);
+    f.write(checked, &note_reviewed(&reviewed));
+    f.write(plain, NOTE);
+    // 確認日が date より前なら、date のほうが新しいので出さない
+    f.write(old, &note_reviewed("2020-01-01"));
+
+    let run = f.ika(&["kb", "search", "本文"]);
+    assert!(run.ok, "{}", run.err);
+    let line = |path: &str| {
+        run.out
+            .lines()
+            .find(|l| l.starts_with(path))
+            .unwrap_or_else(|| panic!("{path}: {}", run.out))
+            .to_string()
+    };
+    assert!(
+        line(checked).ends_with(&format!("[note] 2026-10-14 確認 {reviewed}")),
+        "{}",
+        line(checked)
+    );
+    assert!(
+        line(plain).ends_with("[note] 2026-10-14"),
+        "{}",
+        line(plain)
+    );
+    assert!(line(old).ends_with("[note] 2026-10-14"), "{}", line(old));
+
+    let server = f.serve();
+    let page = get(&server, "/kb/tech/notes/2026/2026-10-14-checked.md");
+    assert!(
+        page.body.contains(&format!("確認 {reviewed}")),
+        "{}",
+        page.body
+    );
+    let page = get(&server, "/kb/tech/notes/2026/2026-10-14-plain.md");
+    assert!(!page.body.contains("確認 "), "{}", page.body);
+}
+
 const LONG_NOTE: &str = "---\ntitle: n\ntype: note\ndate: 2026-10-14\nprojects: [foo]\ntags: [auth]\n---\n\n## 要点\n\n要点の本文\n\n## 詳細\n\n詳細の本文\n\n### 補足\n\n補足の本文\n\n## 詳細\n\n二つ目\n";
 
 #[test]
@@ -1416,6 +1689,39 @@ fn resident_instructions_stay_small() {
         let text = plugin_file(&format!("skills/{skill}/SKILL.md"));
         assert!(text.contains("(references/diagrams.md)"), "{skill}");
     }
+}
+
+/// 確かめた日の書式と、回答・確かめ直しの手順がスキルに入っている
+#[test]
+fn freshness_guidance_is_in_the_docs_and_skills() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let format = fs::read_to_string(root.join("docs/kb-format.md")).unwrap();
+    assert!(format.contains("reviewed:") && format.contains("ika kb review"));
+
+    // 回答に、最後に確かめた日と日数、古い可能性を添える
+    let search = plugin_file("skills/search/SKILL.md");
+    for needle in [
+        "`reviewed`",
+        "今日から何日前",
+        "90 日",
+        "references/review.md",
+    ] {
+        assert!(search.contains(needle), "{needle}");
+    }
+
+    // 確かめ直しの手順。確かめずに付けない
+    let review = plugin_file("skills/capture/references/review.md");
+    for needle in [
+        "ika kb triage",
+        "ika kb review",
+        "確かめずに日付だけ更新しない",
+        "一次情報",
+    ] {
+        assert!(review.contains(needle), "{needle}");
+    }
+    let capture = plugin_file("skills/capture/SKILL.md");
+    assert!(capture.contains("(references/review.md)"));
+    assert!(skill_description(&capture).contains("確かめ直し"));
 }
 
 // ---- ika serve ----

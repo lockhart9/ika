@@ -29,6 +29,7 @@ ika kb stale [-p <name>] [--days 90] [--volatile pricing,competitor,...]   # 古
 ika capture "メモ" | ika capture --stdin   # 領域・プロダクト・タグを決めずに IKA_HOME/inbox/YYYY-MM-DD.md へ即保存（URL も文字のまま。取得はしない）。書き込みは自動でコミットされる
 ika inbox ls [--date YYYY-MM-DD]   # 受信箱を全文で読む
 ika inbox rm <YYYY-MM-DD>       # 整理し終えた日を消す
+ika kb review <path>... [--date YYYY-MM-DD]   # 確かめ直したナレッジに確かめた日（フロントマターの reviewed）を付ける・更新する。内容を確かめてから実行する。stale・triage は date と reviewed の遅いほうを基準にする。取り込み資料（source）には付けられず、1つでも付けられなければ何も書かない。書き込みは自動でコミットされる
 ika kb triage [-p <name>] [--limit 10] [--min 3] [--days 90] [--volatile ...]   # orphans と stale をまとめ、優先順位つき（受信箱 → 蒸留 → 知見の更新 → README → 根拠の確かめ直し → 取り込み直し。同種は件数順）の「今週やること」にする。読むだけで何も書かない。未整理が --min 件未満のプロダクトは「様子見」
 ika kb write <path> [--overwrite]   # 標準入力の全文でファイルを作る
 ika kb append <path>                # 標準入力を末尾に足す

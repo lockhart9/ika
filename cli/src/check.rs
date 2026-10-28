@@ -206,6 +206,12 @@ fn check_file(
     {
         problems.push(format!("date は YYYY-MM-DD で書いてください: {date}"));
     }
+    // 確かめた日（任意）。空や未来の日付も誤りとして指摘する
+    if let Some(reviewed) = fields.get("reviewed")
+        && let Err(msg) = crate::kb::review::validate(reviewed, chrono::Local::now().date_naive())
+    {
+        problems.push(format!("reviewed は{msg}"));
+    }
     let listed =
         |key: &str, problems: &mut Vec<String>| match fields.get(key).map(|v| frontmatter::list(v))
         {
