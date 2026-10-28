@@ -119,7 +119,7 @@ Rust のモジュールは `mod.rs` を使わず `foo.rs`（子モジュール�
 
 全コマンドは [`docs/cli.md`](docs/cli.md)、詳しくは `ika <コマンド> --help`。KB の作業はスキルの手順に従う。
 
-- KB: `ika kb ls|cat|search|grep|fts|write|append|edit|mv|rm|orphans|stale|triage|index`、`ika new`（ノート・決定・要件書など）、`ika import`、`ika capture`・`ika inbox`
+- KB: `ika kb ls|cat|search|grep|fts|write|append|edit|mv|rm|orphans|stale|triage|review|index`、`ika new`（ノート・決定・要件書など）、`ika import`、`ika capture`・`ika inbox`
 - 登録簿・データ: `ika project list|show|add|set`、`ika domain list|add`、`ika data new|append|ls|show|sql|export|delete|rm`
 - 検証・閲覧・書き出し: `ika check`、`ika serve`、`ika export claude|chatgpt|html`
 - セットアップ・開発: `cargo install --path cli`、`ika init`、`ika sync`、`ika install`

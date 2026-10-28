@@ -8,6 +8,7 @@ use anyhow::Result;
 
 use crate::check;
 use crate::frontmatter;
+use crate::kb::review;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -52,6 +53,8 @@ const LINE_WIDTH: usize = 160;
 pub struct Hit {
     rank: usize,
     pub date: String,
+    /// 確かめ直した日の表示（`確認 2026-10-20`。`date` より後のときだけ）
+    pub reviewed: Option<String>,
     pub rel: PathBuf,
     pub label: String,
     pub lines: Vec<(usize, String)>,
@@ -99,9 +102,14 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
             .map(|(n, line)| (n + 1, line.trim().to_string()))
             .collect();
         let (rank, date, label) = weight(&text);
+        let reviewed = frontmatter::parse(&text)
+            .ok()
+            .flatten()
+            .and_then(|fields| review::label_of(&fields));
         hits.push(Hit {
             rank,
             date,
+            reviewed,
             rel: rel.to_path_buf(),
             label,
             lines,
@@ -128,7 +136,16 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
             println!("{}", hit.rel.display());
             continue;
         }
-        println!("{}  [{}] {}", hit.rel.display(), hit.label, hit.date);
+        let reviewed = hit
+            .reviewed
+            .as_ref()
+            .map_or(String::new(), |r| format!(" {r}"));
+        println!(
+            "{}  [{}] {}{reviewed}",
+            hit.rel.display(),
+            hit.label,
+            hit.date
+        );
         for (n, line) in hit.lines.iter().take(MAX_LINES) {
             println!("  {n}: {}", clip(line, &terms, LINE_WIDTH));
         }

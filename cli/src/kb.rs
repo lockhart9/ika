@@ -19,6 +19,7 @@ pub mod cat;
 pub mod fts;
 pub mod grep;
 pub mod orphans;
+pub mod review;
 pub mod search;
 pub mod stale;
 pub mod suggest;
@@ -53,6 +54,9 @@ pub enum Command {
     /// 未整理のノートと古くなっていそうなナレッジを、優先順位つきの「今週やること」にまとめる
     /// （`orphans` と `stale` の判定を使う。読むだけで何も書かない）
     Triage(triage::Args),
+    /// 確かめ直したナレッジに、確かめた日（フロントマターの reviewed）を付ける。内容を確かめてから実行する。
+    /// stale・triage は date と reviewed の遅いほうを基準にする。1つでも付けられなければ何も書かない
+    Review(review::Args),
     /// ファイルの中身を表示する。--outline・--section・--lines・--frontmatter で一部だけ読める
     Cat(cat::Args),
     /// 標準入力の内容でファイルを作る（フロントマターを含む全文）
@@ -114,6 +118,7 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
         Command::Orphans(args) => orphans::run(root, args)?,
         Command::Stale(args) => stale::run(root, args)?,
         Command::Triage(args) => triage::run(root, args)?,
+        Command::Review(args) => review::run(root, args)?,
         Command::Cat(args) => cat::run(root, args)?,
         Command::Write { path, overwrite } => {
             let rel = resolve(root, &path)?;

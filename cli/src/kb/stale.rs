@@ -4,6 +4,8 @@
 //! 2. insight の日付より新しく、タグ（とプロダクト）が重なるノートを、その insight がまだリンクしていない
 //! 3. 変わりやすい情報（価格・競合など）の古いノートを、insight・決定・要件書・README が根拠にしている
 //! 4. 手元のファイルから取り込んだ資料の原本が、取り込んだときから変わった・見当たらない
+//!
+//! 1〜3 の基準日は、`date` と `reviewed`（確かめ直した日。`ika kb review`）の遅いほう。
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
@@ -14,6 +16,7 @@ use anyhow::Result;
 use chrono::{Days, Local, NaiveDate};
 use sha2::{Digest, Sha256};
 
+use crate::kb::review;
 use crate::{check, frontmatter, kb, registry};
 
 /// 変わりやすい情報を表すタグの既定
@@ -42,6 +45,10 @@ struct Doc {
     kind: String,
     status: String,
     date: String,
+    /// 確かめ直した日。形式の誤りと未来の日付は空にしてある（`ika check` が指摘する）
+    reviewed: String,
+    /// 最後に確かめた日（`date` と `reviewed` の遅いほう）。古さの判定はこれを使う
+    confirmed: String,
     projects: Vec<String>,
     tags: Vec<String>,
     source: String,
@@ -55,6 +62,14 @@ impl Doc {
         self.projects.iter().any(|p| p == name)
     }
 
+    /// 項目の見出しに添える `date`（確認日が後なら `（確認 日付）` つき）
+    fn dated(&self) -> String {
+        match review::label(&self.date, &self.reviewed) {
+            Some(label) => format!("{}（{label}）", self.date),
+            None => self.date.clone(),
+        }
+    }
+
     /// 根拠として他のノートを引く、確定寄りの資料（知見・生きている決定・要件書・README）
     fn is_authority(&self) -> bool {
         match self.kind.as_str() {
@@ -66,7 +81,7 @@ impl Doc {
     }
 }
 
-fn load(root: &Path) -> Result<Vec<Doc>> {
+fn load(root: &Path, today: NaiveDate) -> Result<Vec<Doc>> {
     let mut files = Vec::new();
     check::collect_markdown(&root.join("kb"), &mut files)?;
     files.sort();
@@ -87,13 +102,17 @@ fn load(root: &Path) -> Result<Vec<Doc>> {
             .into_iter()
             .map(|target| kb::normalize(&dir.join(target)))
             .collect();
+        let date = field("date");
+        let reviewed = review::usable(&field("reviewed"), today);
         docs.push(Doc {
+            confirmed: review::confirmed(&date, &reviewed),
+            reviewed,
             title: Some(field("title"))
                 .filter(|t| !t.is_empty())
                 .unwrap_or_else(|| rel.display().to_string()),
             kind: field("type"),
             status: field("status"),
-            date: field("date"),
+            date,
             projects: list("projects"),
             tags: list("tags"),
             source: field("source"),
@@ -122,8 +141,8 @@ pub struct Item {
 
 /// 4つの点検を、README・知見・変わりやすい情報・取り込み資料の順で返す
 pub fn sections(root: &Path, args: &Args) -> Result<[Section; 4]> {
-    let docs = load(root)?;
     let today = Local::now().date_naive();
+    let docs = load(root, today)?;
     Ok([
         readmes(root, &docs, args)?,
         insights(&docs, args),
@@ -172,8 +191,8 @@ fn readmes(root: &Path, docs: &[Doc], args: &Args) -> Result<Section> {
         if !repo.is_dir() || NaiveDate::parse_from_str(&doc.date, "%Y-%m-%d").is_err() {
             continue;
         }
-        // README の日付の翌日 0 時より後のコミット（同じ日のコミットは反映済みとみなす）
-        let after = format!("--after={} 23:59:59", doc.date);
+        // 最後に確かめた日の翌日 0 時より後のコミット（同じ日のコミットは反映済みとみなす）
+        let after = format!("--after={} 23:59:59", doc.confirmed);
         let Some(count) = git(&repo, &["rev-list", "--count", &after, "HEAD"]) else {
             continue;
         };
@@ -186,7 +205,7 @@ fn readmes(root: &Path, docs: &[Doc], args: &Args) -> Result<Section> {
             text: format!(
                 "  {}  README {} · その後のコミット {count} 件（最新 {latest}）\n      {}",
                 project.name,
-                doc.date,
+                doc.dated(),
                 doc.rel.display()
             ),
             weight: count,
@@ -227,7 +246,7 @@ fn insights(docs: &[Doc], args: &Args) -> Section {
         }
         let newer: Vec<&Doc> = docs
             .iter()
-            .filter(|n| n.kind == "note" && n.date > insight.date)
+            .filter(|n| n.kind == "note" && n.date > insight.confirmed)
             .filter(|n| !insight.links.contains(&n.rel))
             .filter(|n| n.tags.iter().any(|t| insight.tags.contains(t)))
             .filter(|n| {
@@ -240,7 +259,7 @@ fn insights(docs: &[Doc], args: &Args) -> Section {
         items.push(Item {
             text: format!(
                 "  {}  {}（{}）· その後のノート {} 件\n      {}",
-                insight.date,
+                insight.dated(),
                 insight.title,
                 insight.rel.display(),
                 newer.len(),
@@ -272,7 +291,7 @@ fn volatile(docs: &[Doc], args: &Args, today: NaiveDate) -> Section {
     let tags: BTreeSet<&str> = args.volatile.iter().map(|t| t.trim()).collect();
     let mut items = Vec::new();
     for note in docs.iter().filter(|d| d.kind == "note") {
-        if note.date.is_empty() || note.date >= cutoff {
+        if note.date.is_empty() || note.confirmed >= cutoff {
             continue;
         }
         if args.project.as_ref().is_some_and(|p| !note.has_project(p)) {
@@ -297,7 +316,7 @@ fn volatile(docs: &[Doc], args: &Args, today: NaiveDate) -> Section {
         items.push(Item {
             text: format!(
                 "  {}  {}（#{}）\n      {}\n      根拠にしている: {}",
-                note.date,
+                note.dated(),
                 note.title,
                 matched.join(" #"),
                 note.rel.display(),
