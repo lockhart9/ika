@@ -1,6 +1,6 @@
 ---
 name: project-sync
-description: 開発中のサービスのリポジトリ（data/projects.csv の path）を読み、ika のプロダクト概要（kb/projects/<name>/README.md）を最新の状態に更新する。「〜の現状をKBに反映して」「プロダクト概要を更新」「全プロダクトの棚卸し」のような依頼で使う。
+description: 開発中のサービスのリポジトリを読み、ika のプロダクト概要（README）を最新にする。「〜の現状をKBに反映して」「プロダクト概要を更新」「全プロダクトの棚卸し」で使う。
 compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 

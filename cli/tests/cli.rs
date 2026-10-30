@@ -1402,6 +1402,84 @@ fn search_any_matches_either_term() {
 }
 
 #[test]
+fn search_puts_stronger_matches_first_within_the_same_kind() {
+    let f = Fixture::new("rank-relevance");
+    let doc = |ty: &str, date: &str, extra: &str, body: &str| {
+        format!(
+            "---\ntitle: x\ntype: {ty}\ndate: {date}\nprojects: []\ntags: []\n{extra}---\n\n{body}\n"
+        )
+    };
+    // 古いノートは foo を 3 行、新しいノートは 1 行だけ含む
+    f.write(
+        "kb/tech/notes/2026/2026-10-01-old-many.md",
+        &doc(
+            "note",
+            "2026-10-01",
+            "",
+            "foo の話\nfoo の続き\nfoo のまとめ",
+        ),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-09-new-one.md",
+        &doc("note", "2026-10-09", "", "foo の話"),
+    );
+    // 一致の数が同じなら、新しい日付が先
+    f.write(
+        "kb/tech/notes/2026/2026-10-02-old-one.md",
+        &doc("note", "2026-10-02", "", "foo の話"),
+    );
+    // 採用済みの決定は、一致が 1 行でも、ノートより先
+    f.write(
+        "kb/tech/decisions/2026-10-03-ok.md",
+        &doc("decision", "2026-10-03", "status: accepted\n", "foo の話"),
+    );
+
+    let run = f.ika(&["kb", "search", "foo", "-l"]);
+    let paths: Vec<_> = run
+        .out
+        .lines()
+        .filter(|p| !p.contains("projects"))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "kb/tech/decisions/2026-10-03-ok.md",
+            "kb/tech/notes/2026/2026-10-01-old-many.md",
+            "kb/tech/notes/2026/2026-10-09-new-one.md",
+            "kb/tech/notes/2026/2026-10-02-old-one.md",
+        ],
+        "{}",
+        run.out
+    );
+}
+
+#[test]
+fn search_any_puts_notes_with_more_of_the_terms_first() {
+    let f = Fixture::new("rank-any");
+    let doc = |date: &str, body: &str| {
+        format!("---\ntitle: x\ntype: note\ndate: {date}\nprojects: []\ntags: []\n---\n\n{body}\n")
+    };
+    f.write(
+        "kb/tech/notes/2026/2026-10-01-both.md",
+        &doc("2026-10-01", "Review と レビュー"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-09-one.md",
+        &doc("2026-10-09", "Review の話\nReview の続き"),
+    );
+    let run = f.ika(&["kb", "search", "Review", "レビュー", "--any", "-l"]);
+    assert_eq!(
+        run.out.lines().collect::<Vec<_>>(),
+        [
+            "kb/tech/notes/2026/2026-10-01-both.md",
+            "kb/tech/notes/2026/2026-10-09-one.md",
+        ],
+        "{}",
+        run.out
+    );
+}
+
+#[test]
 fn search_orders_results_by_kind_then_newest() {
     let f = Fixture::new("rank");
     let doc = |ty: &str, date: &str, extra: &str| {
@@ -1617,6 +1695,30 @@ fn real_repo(f: &Fixture) -> PathBuf {
 }
 
 #[test]
+fn skill_descriptions_stay_short() {
+    // 常に読み込まれるので、1 つ 180 字・合計 950 字までに収める
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../plugins/ika/skills");
+    let mut total = 0;
+    for entry in fs::read_dir(&source).unwrap() {
+        let dir = entry.unwrap().path();
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let text = fs::read_to_string(dir.join("SKILL.md")).unwrap();
+        let description = text
+            .lines()
+            .find_map(|l| l.strip_prefix("description: "))
+            .unwrap_or_else(|| panic!("{name} に description がない"));
+        let chars = description.chars().count();
+        assert!(chars <= 180, "{name} の description が {chars} 字");
+        total += chars;
+        if name == "search" {
+            // 製品リポジトリに痕跡を残さない規則は、常に読み込まれる説明に置く
+            assert!(description.contains("製品リポジトリ") && description.contains("言及"));
+        }
+    }
+    assert!(total <= 950, "description の合計が {total} 字");
+}
+
+#[test]
 fn exported_instructions_leave_out_repo_only_sections() {
     let f = Fixture::new("export-repo-only");
     f.kb_with_two_domains();
@@ -1636,11 +1738,33 @@ fn exported_instructions_leave_out_repo_only_sections() {
     }
     assert!(instructions.contains("## 守ること"));
     assert!(instructions.contains("## ChatGPT での使い方"));
-    // 指示欄の上限は非公開（カスタム GPT は 8,000 字という報告）。余裕を見て 6,000 字に収める
+    // 指示欄の上限は非公開（カスタム GPT は 8,000 字という報告）。目安の 5,000 字に収める
     let chars = instructions.chars().count();
-    assert!(chars <= 6000, "ChatGPT の指示が {chars} 字");
-    // 図の記法は書式と一緒にプロジェクトファイルへ
+    assert!(chars <= 5000, "ChatGPT の指示が {chars} 字");
+    // 指示欄にはスキル名だけを置き、説明の全文は skills.md の冒頭の一覧に回す
     let skills = fs::read_to_string(out.join("skills.md")).unwrap();
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../plugins/ika/skills");
+    let list_end = skills.find("## 書式（").expect("書式の節");
+    for entry in fs::read_dir(&source).unwrap() {
+        let dir = entry.unwrap().path();
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let text = fs::read_to_string(dir.join("SKILL.md")).unwrap();
+        let description = text
+            .lines()
+            .find_map(|l| l.strip_prefix("description: "))
+            .unwrap_or_else(|| panic!("{name} に description がない"))
+            .to_string();
+        assert!(instructions.contains(&format!("`{name}`")), "{name}");
+        assert!(
+            !instructions.contains(&description),
+            "{name} の説明が指示欄にある"
+        );
+        assert!(
+            skills[..list_end].contains(&format!("- `{name}`: {description}")),
+            "{name} の説明が skills.md の冒頭にない"
+        );
+    }
+    // 図の記法は書式と一緒にプロジェクトファイルへ
     assert!(skills.contains("## 図の記法（references/diagrams.md）"));
     assert!(skills.contains("```flow"));
 
