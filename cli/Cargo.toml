@@ -31,4 +31,4 @@ zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-rust_xlsxwriter = "0.100.0"
+rust_xlsxwriter = "0.101.0"

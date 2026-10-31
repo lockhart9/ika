@@ -388,6 +388,9 @@ pub fn markdown_page(root: &Path, rel: &Path, text: &str, needles: &[String]) ->
         .unwrap_or_else(|| rel.file_name().unwrap_or_default().to_string_lossy().into());
 
     let mut meta = vec![badge(&field("type"), &field("status")), esc(&field("date"))];
+    if let Some(label) = crate::kb::review::label_of(&fields) {
+        meta.push(esc(&label));
+    }
     let projects: Vec<_> = list("projects")
         .iter()
         .map(|p| format!("<a href=\"/project/{}\">{}</a>", esc(p), esc(p)))

@@ -46,6 +46,7 @@ kb/
 title: 内容が分かる一文のタイトル
 type: note            # project | spec | note | insight | decision | source
 date: 2026-10-14      # 作成日。insight と project は最終更新日として使う
+reviewed: 2026-10-20  # 任意。確かめ直した日（ika kb review）。stale は date と遅いほうを基準にする
 projects: [foo]       # data/projects.csv の name。横断的な内容なら複数、無関係なら []
 tags: [foo, bar-baz]  # 小文字・ハイフン区切り
 source: https://...   # 任意。出典URL

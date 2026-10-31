@@ -1,6 +1,6 @@
 ---
 name: import
-description: 外部のドキュメントを Markdown にして ika のナレッジベースに全文で取り込み、要点を README・要件書・ノートに反映する。対象は、製品リポジトリの Markdown の仕様書、Google Drive・Notion のページ、手元の docx・xlsx・pptx・pdf・html・csv。「この仕様書を取り込んで」「Drive の〜を KB に入れて」「Notion のページを取り込んで」「資料を取り込み直して」のような依頼で使う。
+description: 外部の資料を Markdown にして ika のナレッジベースに全文で取り込み、要点を README・要件書・ノートに反映する。対象は製品リポジトリの仕様書、Google Drive・Notion、docx・xlsx・pptx・pdf・html・csv。「この仕様書を取り込んで」で使う。
 compatibility: ika CLI が必要（変換は ika import が行い、外部ツールは要らない）。Google Drive・Notion から取るには、それぞれの MCP コネクタが要る
 ---
 

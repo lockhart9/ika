@@ -205,18 +205,36 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
     // ナレッジ（kb/・登録簿）は IKA_HOME のデータ、指示文・スキル・書式はリポジトリから読む
     let home = roots::data_dir()?;
 
-    // 指示欄は短く保ち（上限は非公開。目安 5,000 字）、スキル本文と書式はプロジェクトファイルに回す
+    // 指示欄は短く保ち（上限は非公開。目安 5,000 字）、スキルの説明・本文と書式はプロジェクトファイルに回す
     let mut instructions = client_instructions(root)?;
-    instructions.push_str(
+    let mut names = Vec::new();
+    let mut list = String::new();
+    let mut bodies = String::new();
+    for dir in skills::dirs(root)? {
+        let text = fs::read_to_string(dir.join("SKILL.md"))?;
+        let name = dir.file_name().expect("skills/<name>").to_string_lossy();
+        let description = frontmatter::parse(&text)?
+            .and_then(|f| f.get("description").cloned())
+            .unwrap_or_default();
+        names.push(format!("`{name}`"));
+        list.push_str(&format!("- `{name}`: {description}\n"));
+        bodies.push_str(&format!(
+            "\n\n---\n\n# スキル: {name}\n\n{}",
+            frontmatter::body(&text)
+        ));
+    }
+    instructions.push_str(&format!(
         "\n## ChatGPT での使い方\n\n\
          - ナレッジはプロジェクトファイルの `knowledge-<領域>.md`（領域ごと）、`knowledge-projects.md`（プロダクト概要）、\
          `projects.csv`・`domains.csv` にある。各ノートの先頭の `<!-- path: ... -->` が元のパス\n\
-         - 書式（`references/kb-format.md`）・図の記法（`references/diagrams.md`）とスキルの手順は `skills.md` にある。依頼が下のスキルに当てはまったら、`skills.md` の該当節に従う\n\
+         - 書式（`references/kb-format.md`）・図の記法（`references/diagrams.md`）とスキルの手順は `skills.md` にある\n\
          - CLI とファイル書き込みは使えない。記録を頼まれたら保存先のパスとフロントマター付きの本文を出力する\n\n\
-         ## スキル\n\n",
-    );
-    let mut skills_md =
-        String::from("# ika スキルと書式\n\n## 書式（references/kb-format.md）\n\n");
+         ## スキル\n\n\
+         {}。依頼が当てはまるかは `skills.md` 冒頭の「スキル一覧」で判断し、当てはまったら該当節に従う\n",
+        names.join("・")
+    ));
+    let mut skills_md = format!("# ika スキルと書式\n\n## スキル一覧\n\n{list}");
+    skills_md.push_str("\n---\n\n## 書式（references/kb-format.md）\n\n");
     skills_md.push_str(frontmatter::body(&fs::read_to_string(
         root.join("docs/kb-format.md"),
     )?));
@@ -224,18 +242,7 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
     skills_md.push_str(frontmatter::body(&fs::read_to_string(
         root.join("docs/diagrams.md"),
     )?));
-    for dir in skills::dirs(root)? {
-        let text = fs::read_to_string(dir.join("SKILL.md"))?;
-        let name = dir.file_name().expect("skills/<name>").to_string_lossy();
-        let description = frontmatter::parse(&text)?
-            .and_then(|f| f.get("description").cloned())
-            .unwrap_or_default();
-        instructions.push_str(&format!("- `{name}`: {description}\n"));
-        skills_md.push_str(&format!(
-            "\n\n---\n\n# スキル: {name}\n\n{}",
-            frontmatter::body(&text)
-        ));
-    }
+    skills_md.push_str(&bodies);
     fs::write(out.join("instructions.md"), instructions)?;
     fs::write(out.join("skills.md"), skills_md)?;
 
