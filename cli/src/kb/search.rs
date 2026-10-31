@@ -52,6 +52,8 @@ const LINE_WIDTH: usize = 160;
 /// 一致したファイル1件分
 pub struct Hit {
     rank: usize,
+    /// 含んでいた検索語の種類の数（`--any` で多くの語を含むほど大きい）
+    terms_found: usize,
     pub date: String,
     /// 確かめ直した日の表示（`確認 2026-10-20`。`date` より後のときだけ）
     pub reviewed: Option<String>,
@@ -60,7 +62,7 @@ pub struct Hit {
     pub lines: Vec<(usize, String)>,
 }
 
-/// 条件に合うファイルを、信頼度順（確定した判断 → 知見 → … → ノート）・新しい日付順で返す
+/// 条件に合うファイルを、信頼度順（確定した判断 → 知見 → … → ノート）、同じ順位では一致の多い順・新しい日付順で返す
 pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
     let base = root.join("kb");
     let mut files = Vec::new();
@@ -92,6 +94,7 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
         {
             continue;
         }
+        let terms_found = terms.iter().filter(|t| found(t)).count();
         let lines = text
             .lines()
             .enumerate()
@@ -108,6 +111,7 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
             .and_then(|fields| review::label_of(&fields));
         hits.push(Hit {
             rank,
+            terms_found,
             date,
             reviewed,
             rel: rel.to_path_buf(),
@@ -115,10 +119,17 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
             lines,
         });
     }
-    // 確定した判断・蒸留した知見を前に、生のメモを後ろに。同じ順位では新しい日付が先
-    hits.sort_by(|a, b| {
-        (a.rank, Reverse(&a.date), &a.rel).cmp(&(b.rank, Reverse(&b.date), &b.rel))
-    });
+    // 確定した判断・蒸留した知見を前に、生のメモを後ろに。同じ順位では、語を多く含むものが先、
+    // 一致行の多いものが次、同じなら新しい日付が先。一般的な語で件数の上限に切られても、関連の高いものが残る
+    let key = |h: &Hit| {
+        (
+            h.rank,
+            Reverse(h.terms_found),
+            Reverse(h.lines.len()),
+            Reverse(h.date.clone()),
+        )
+    };
+    hits.sort_by(|a, b| key(a).cmp(&key(b)).then_with(|| a.rel.cmp(&b.rel)));
     Ok(hits)
 }
 
