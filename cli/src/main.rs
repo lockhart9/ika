@@ -76,7 +76,7 @@ enum Command {
     Import(import::Args),
     /// フロントマター・登録簿・リンク・プラグインを検証する
     Check,
-    /// 正本（docs/kb-format.md・docs/diagrams.md・templates/）をプラグインのスキルにコピーする
+    /// 正本（docs/kb-format.md・docs/kb-layout.md・docs/diagrams.md・templates/）をプラグインのスキルにコピーする
     Sync,
     /// 各クライアント向けに dist/ へ書き出す。html は KB のページを図と表の入った単独の HTML にする
     Export(export::Args),

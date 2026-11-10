@@ -1,13 +1,13 @@
 ---
 name: project-add
 description: 新しいプロダクト（開発中のサービス、事業・副業の検討）を ika に登録する。「新しいサービスを始めた」「〜をKBに追加して」「プロダクト一覧に足して」のとき、記録先のプロダクトが未登録だったときに使う。
-compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
+compatibility: ika CLI と環境変数 IKA_HOME が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 
 # project-add: プロダクトを登録する
 
-KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。プロダクト一覧の正本は `data/projects.csv`。構成と書式は [references/kb-format.md](references/kb-format.md)、概要のひな形は [assets/project.md](assets/project.md)。
-製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
+KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら設定を頼む）。読み書きは `ika` CLI だけで行い、ファイルを直接 Read/Write/rg しない。プロダクト一覧の正本は `data/projects.csv`。README は `ika project add` がひな形から作るので、書式（[references/kb-format.md](references/kb-format.md)）は `ika check` の指摘が出たとき・CLI が無いときだけ読む。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く。出典は一次情報の URL だけ。詳しくは [cycle の資料](../cycle/references/product-repo.md)）。
 KB にアクセスできない環境（claude.ai・ChatGPT web など）では、保存先のパスとフロントマター付きの本文を出力し、ユーザーに保存してもらう。
 
 ## 手順

@@ -227,14 +227,18 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
         "\n## ChatGPT での使い方\n\n\
          - ナレッジはプロジェクトファイルの `knowledge-<領域>.md`（領域ごと）、`knowledge-projects.md`（プロダクト概要）、\
          `projects.csv`・`domains.csv` にある。各ノートの先頭の `<!-- path: ... -->` が元のパス\n\
-         - 書式（`references/kb-format.md`）・図の記法（`references/diagrams.md`）とスキルの手順は `skills.md` にある\n\
+         - 置き場所（`references/kb-layout.md`）・書式（`references/kb-format.md`）・図の記法（`references/diagrams.md`）とスキルの手順は `skills.md` にある\n\
          - CLI とファイル書き込みは使えない。記録を頼まれたら保存先のパスとフロントマター付きの本文を出力する\n\n\
          ## スキル\n\n\
          {}。依頼が当てはまるかは `skills.md` 冒頭の「スキル一覧」で判断し、当てはまったら該当節に従う\n",
         names.join("・")
     ));
     let mut skills_md = format!("# ika スキルと書式\n\n## スキル一覧\n\n{list}");
-    skills_md.push_str("\n---\n\n## 書式（references/kb-format.md）\n\n");
+    skills_md.push_str("\n---\n\n## 置き場所（references/kb-layout.md）\n\n");
+    skills_md.push_str(frontmatter::body(&fs::read_to_string(
+        root.join("docs/kb-layout.md"),
+    )?));
+    skills_md.push_str("\n\n---\n\n## 書式（references/kb-format.md）\n\n");
     skills_md.push_str(frontmatter::body(&fs::read_to_string(
         root.join("docs/kb-format.md"),
     )?));

@@ -768,16 +768,16 @@ fn search_and_serve_show_the_confirmation_date() {
             .to_string()
     };
     assert!(
-        line(checked).ends_with(&format!("[note] 2026-10-14 確認 {reviewed}")),
+        line(checked).contains(&format!("[note] 2026-10-14 確認 {reviewed}  ")),
         "{}",
         line(checked)
     );
     assert!(
-        line(plain).ends_with("[note] 2026-10-14"),
+        !line(plain).contains("確認") && line(plain).contains("[note] 2026-10-14  "),
         "{}",
         line(plain)
     );
-    assert!(line(old).ends_with("[note] 2026-10-14"), "{}", line(old));
+    assert!(!line(old).contains("確認"), "{}", line(old));
 
     let server = f.serve();
     let page = get(&server, "/kb/tech/notes/2026/2026-10-14-checked.md");
@@ -1149,10 +1149,12 @@ fn project_show_lists_related_notes_newest_first() {
 
     let run = f.ika(&["project", "show", "foo"]);
     assert!(run.ok, "{}", run.err);
+    // 1 件 1 行: [種類 status] 日付  パス  タイトル
     let paths: Vec<_> = run
         .out
         .lines()
-        .filter_map(|l| l.trim().strip_prefix("kb/"))
+        .filter(|l| l.starts_with("  ["))
+        .filter_map(|l| l.split("  ").find_map(|part| part.strip_prefix("kb/")))
         .collect();
     assert_eq!(
         paths,
@@ -1523,8 +1525,9 @@ fn search_orders_results_by_kind_then_newest() {
 
     let detailed = f.ika(&["kb", "search", "foo"]).out;
     assert!(
-        detailed
-            .starts_with("kb/tech/decisions/2026-10-03-ok.md  [decision accepted] 2026-10-03\n  "),
+        detailed.starts_with(
+            "kb/tech/decisions/2026-10-03-ok.md  [decision accepted] 2026-10-03  x\n  "
+        ),
         "{detailed}"
     );
     assert!(detailed.contains("[insight] 2026-10-02"));
@@ -1538,6 +1541,7 @@ impl Fixture {
         fs::create_dir_all(repo.join("docs")).unwrap();
         fs::write(repo.join("AGENTS.md"), "# 指示\n").unwrap();
         fs::write(repo.join("docs/kb-format.md"), "# 書式\n").unwrap();
+        fs::write(repo.join("docs/kb-layout.md"), "# 置き場所\n").unwrap();
         fs::write(repo.join("docs/diagrams.md"), "# 図の記法\n").unwrap();
         fs::write(
             repo.join("plugins/ika/skills/demo/SKILL.md"),
@@ -1678,7 +1682,12 @@ fn real_repo(f: &Fixture) -> PathBuf {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
     let repo = f.dir.join("repo");
     fs::create_dir_all(repo.join("docs")).unwrap();
-    for rel in ["AGENTS.md", "docs/kb-format.md", "docs/diagrams.md"] {
+    for rel in [
+        "AGENTS.md",
+        "docs/kb-format.md",
+        "docs/kb-layout.md",
+        "docs/diagrams.md",
+    ] {
         fs::copy(src.join(rel), repo.join(rel)).unwrap();
     }
     for entry in fs::read_dir(src.join("plugins/ika/skills")).unwrap() {
@@ -1799,7 +1808,12 @@ fn export_fails_on_an_unclosed_repo_only_marker() {
 #[test]
 fn resident_instructions_stay_small() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    for (rel, max) in [("AGENTS.md", 7000), ("docs/kb-format.md", 4000)] {
+    // 書式は「書き方」と「置き場所」に分け、スキルには使うほうだけを配る
+    for (rel, max) in [
+        ("AGENTS.md", 7000),
+        ("docs/kb-format.md", 2200),
+        ("docs/kb-layout.md", 2200),
+    ] {
         let chars = fs::read_to_string(root.join(rel)).unwrap().chars().count();
         assert!(chars <= max, "{rel} が {chars} 字（上限 {max}）");
     }
@@ -4154,7 +4168,7 @@ fn search_caps_files_lines_and_line_length() {
     // 長い行は語を残して切る
     let long = run.out.lines().find(|l| l.contains("あ")).unwrap();
     assert!(long.contains("共通語") && long.contains('…'), "{long}");
-    assert!(long.chars().count() < 180, "{}", long.chars().count());
+    assert!(long.chars().count() < 120, "{}", long.chars().count());
 
     let five = f.ika(&["kb", "search", "共通語", "-n", "5", "-l"]);
     assert_eq!(five.out.lines().count(), 5, "{}", five.out);
@@ -4166,6 +4180,43 @@ fn search_caps_files_lines_and_line_length() {
     let all = f.ika(&["kb", "search", "共通語", "-n", "0"]);
     assert_eq!(file_lines(&all.out).len(), 55);
     assert_eq!(all.err.trim(), "55 件");
+}
+
+#[test]
+fn search_shows_titles_and_keeps_frontmatter_out_of_the_matched_lines() {
+    let f = Fixture::new("search-title");
+    let doc = |title: &str, tags: &str, body: &str| {
+        format!(
+            "---\ntitle: {title}\ntype: note\ndate: 2026-10-14\nprojects: []\ntags: [{tags}]\n---\n\n{body}\n"
+        )
+    };
+    f.write(
+        "kb/tech/notes/2026/2026-10-14-body.md",
+        &doc("料金の調査", "pricing", "料金は月額制"),
+    );
+    f.write(
+        "kb/tech/notes/2026/2026-10-14-front.md",
+        &doc("料金の一覧", "料金", "本文には無い"),
+    );
+    let run = f.ika(&["kb", "search", "料金"]);
+    assert!(run.ok, "{}", run.err);
+    // 見出し行にタイトル。フロントマターの行は一致行に出さない
+    assert!(
+        run.out.contains(
+            "kb/tech/notes/2026/2026-10-14-body.md  [note] 2026-10-14  料金の調査\n  9: 料金は月額制\n"
+        ),
+        "{}",
+        run.out
+    );
+    assert!(!run.out.contains("title:") && !run.out.contains("tags:"));
+    // フロントマターにだけ当たったファイルは、項目名で知らせる
+    assert!(
+        run.out.contains(
+            "kb/tech/notes/2026/2026-10-14-front.md  [note] 2026-10-14  料金の一覧\n  （title・tags に一致）\n"
+        ),
+        "{}",
+        run.out
+    );
 }
 
 #[test]
@@ -4231,15 +4282,79 @@ fn project_show_caps_the_related_list() {
     let run = f.ika(&["project", "show", "foo"]);
     assert!(run.ok, "{}", run.err);
     assert!(run.out.contains("関連（25 件）"), "{}", run.out);
-    assert_eq!(run.out.matches("      kb/").count(), 20, "{}", run.out);
+    assert_eq!(run.out.matches("  kb/").count(), 20, "{}", run.out);
     assert!(run.out.contains("…ほか 5 件（-n で増やせる）"));
 
     let all = f.ika(&["project", "show", "foo", "-n", "0"]);
-    assert_eq!(all.out.matches("      kb/").count(), 25);
+    assert_eq!(all.out.matches("  kb/").count(), 25);
     assert!(!all.out.contains("…ほか"));
     let two = f.ika(&["project", "show", "foo", "-n", "2", "--readme"]);
-    assert_eq!(two.out.matches("      kb/").count(), 2);
-    assert!(two.out.contains("# foo"), "--readme の本文は全文のまま");
+    assert_eq!(two.out.matches("  kb/").count(), 2);
+    assert!(two.out.contains("# foo"), "短い README は --readme で全文");
+}
+
+#[test]
+fn project_show_counts_sources_instead_of_listing_them() {
+    let f = crowded("show-sources", 3, 4);
+    let run = f.ika(&["project", "show", "foo"]);
+    assert!(run.out.contains("関連（7 件）"), "{}", run.out);
+    assert_eq!(run.out.matches("  kb/").count(), 3, "{}", run.out);
+    assert!(
+        run.out
+            .contains("取り込んだ資料 4 件（一覧は ika kb search --type source -p foo -l）"),
+        "{}",
+        run.out
+    );
+    // 全件（-n 0）なら資料も並べる
+    let all = f.ika(&["project", "show", "foo", "-n", "0"]);
+    assert_eq!(all.out.matches("  kb/").count(), 7, "{}", all.out);
+    assert!(!all.out.contains("取り込んだ資料"));
+}
+
+#[test]
+fn project_show_readme_gives_the_digest_of_a_long_readme() {
+    let f = Fixture::new("show-digest");
+    let long = "あ".repeat(3500);
+    let readme = format!(
+        "---\ntitle: foo\ntype: project\ndate: 2026-10-14\nprojects: [foo]\ntags: []\n---\n\n一行説明\n\n## 目的・ターゲット\n\n{long}\n\n## 現状\n\n- 公開済み\n\n## 課題・次の打ち手\n\n- 次にやること\n\n## 関連\n\n- リンク集\n"
+    );
+    f.write("kb/projects/foo/README.md", &readme);
+
+    let run = f.ika(&["project", "show", "foo", "--readme"]);
+    assert!(run.ok, "{}", run.err);
+    for needle in [
+        "要点。全 ",
+        "date 2026-10-14",
+        "一行説明",
+        "- 公開済み",
+        "- 次にやること",
+        "ほかの節: 目的・ターゲット（",
+        "関連（",
+    ] {
+        assert!(run.out.contains(needle), "{needle}: {}", run.out);
+    }
+    assert!(!run.out.contains(&long) && !run.out.contains("リンク集"));
+    assert!(run.out.len() * 4 < readme.len(), "{} bytes", run.out.len());
+
+    // --full は全文（--readme を付けなくてもよい）
+    for args in [
+        vec!["project", "show", "foo", "--full"],
+        vec!["project", "show", "foo", "--readme", "--full"],
+    ] {
+        let full = f.ika(&args);
+        assert!(full.out.ends_with(&readme), "{args:?}");
+    }
+
+    // 要点にする節が無い README は、長くても全文を出す
+    let odd = format!(
+        "---\ntitle: foo\ntype: project\ndate: 2026-10-14\nprojects: [foo]\ntags: []\n---\n\n## メモ\n\n{long}\n"
+    );
+    f.write("kb/projects/foo/README.md", &odd);
+    assert!(
+        f.ika(&["project", "show", "foo", "--readme"])
+            .out
+            .contains(&long)
+    );
 }
 
 #[test]

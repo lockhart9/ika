@@ -22,11 +22,24 @@ const MARKETPLACES: &[&str] = &[
     ".agents/plugins/marketplace.json",
 ];
 
+/// KB に書くスキル。書式（フロントマター・ファイル名・リンク）と、そこからリンクする図の記法を配る
+const WRITERS: &[&str] = &["capture", "cycle", "decide", "project-add", "project-sync"];
+
 /// 正本からスキルへ配るファイル（正本, スキル内のパス, 配り先。None は全スキル）。
+/// 読まれる量を減らすため、そのスキルが使うものだけを配る（SKILL.md からリンクしているかは `check` が確かめる）。
 /// インストール時にプラグイン外へのシンボリックリンクは辿られないため、実ファイルとしてコピーする
 const SHARED: &[(&str, &str, Option<&[&str]>)] = &[
-    ("docs/kb-format.md", "references/kb-format.md", None),
-    ("docs/diagrams.md", "references/diagrams.md", None),
+    (
+        "docs/kb-format.md",
+        "references/kb-format.md",
+        Some(WRITERS),
+    ),
+    ("docs/diagrams.md", "references/diagrams.md", Some(WRITERS)),
+    (
+        "docs/kb-layout.md",
+        "references/kb-layout.md",
+        Some(&["import"]),
+    ),
     ("templates/note.md", "assets/note.md", Some(&["capture"])),
     (
         "templates/insight.md",
@@ -76,9 +89,33 @@ fn shared_copies(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>> {
     Ok(copies)
 }
 
-/// 正本（docs/kb-format.md・docs/diagrams.md・templates/）をスキルの references/・assets/ にコピーする
+/// 配り先から外れたスキルに残っているコピー（配る対象を絞る前のもの）
+fn stale_copies(root: &Path) -> Result<Vec<PathBuf>> {
+    let wanted: Vec<PathBuf> = shared_copies(root)?.into_iter().map(|(_, d)| d).collect();
+    let mut stale = Vec::new();
+    for dir in dirs(root)? {
+        for (_, dest, _) in SHARED {
+            let path = dir.join(dest);
+            if path.is_file() && !wanted.contains(&path) {
+                stale.push(path);
+            }
+        }
+    }
+    Ok(stale)
+}
+
+/// 正本（docs/kb-format.md・docs/kb-layout.md・docs/diagrams.md・templates/）をスキルの references/・assets/ にコピーする。
+/// 配り先から外れたスキルに残っているコピーは消す
 pub fn sync(root: &Path) -> Result<()> {
     let mut changed = 0;
+    for path in stale_copies(root)? {
+        fs::remove_file(&path)?;
+        println!(
+            "削除  {}",
+            path.strip_prefix(root).unwrap_or(&path).display()
+        );
+        changed += 1;
+    }
     for (source, dest) in shared_copies(root)? {
         let content =
             fs::read(&source).with_context(|| format!("{} を読めません", source.display()))?;
@@ -120,6 +157,12 @@ pub fn check(root: &Path) -> Result<Vec<String>> {
                 source.strip_prefix(root).unwrap_or(&source).display()
             ));
         }
+    }
+    for path in stale_copies(root)? {
+        problems.push(format!(
+            "{}: このスキルには配らないコピーです（ika sync で消してください）",
+            path.strip_prefix(root).unwrap_or(&path).display()
+        ));
     }
     find_symlinks(root, &root.join(PLUGIN_DIR), &mut problems)?;
     problems.extend(check_manifests(root));

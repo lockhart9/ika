@@ -1,13 +1,13 @@
 ---
 name: capture
 description: 調査メモ・知見・ビジネスや技術の事実を ika のナレッジベースに記録する。「メモして」「KBに残して」「記録しておいて」「この記事をまとめて保存」と頼まれたとき、調査で残す価値のある事実が出たときに使う。受信箱の整理や、古いナレッジの確かめ直しにも使う。
-compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
+compatibility: ika CLI と環境変数 IKA_HOME が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 
 # capture: ナレッジを記録する
 
-KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。構成・フロントマター・領域の振り分けは [references/kb-format.md](references/kb-format.md)、ひな形は [assets/note.md](assets/note.md) と [assets/insight.md](assets/insight.md)。
-製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
+KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら設定を頼む）。読み書きは `ika` CLI だけで行い、ファイルを直接 Read/Write/rg しない。フロントマターとパスは `ika new` が作るので、書式（[references/kb-format.md](references/kb-format.md)）は `ika check` の指摘が出たとき・CLI が無いときだけ読む。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く。出典は一次情報の URL だけ。詳しくは [cycle の資料](../cycle/references/product-repo.md)）。
 KB にアクセスできない環境（claude.ai・ChatGPT web など）では、保存先のパスとフロントマター付きの本文を出力し、ユーザーに保存してもらう。
 
 ## 手順
@@ -32,7 +32,7 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
    ```
    `--slug` はファイル名になる英字（日本語だけのタイトルでは必須。内容が分かる名前にする）。`--stdin` を付けるとテンプレートの本文の代わりに標準入力が本文になる（フロントマターは引数から作られる）。既存ノートの更新は `ika kb edit <path> --old ... --new ...` か `ika kb append <path>`。ほかに `ika kb cat|ls|search|write|mv|rm`（パスは `kb/` から）。書き込みは原子的で、並行セッションが同時に変えたファイルは上書きせず失敗するので、読み直してやり直す。`mv`・`rm` は、リンク切れになる参照元を表示する（`mv --fix-links` なら自動で書き換える。`rm` は `ika kb edit` で直す）。
    作った直後に標準エラーへ「似た既存のナレッジ」が出たら、新規で足りるか確かめる。同じ話題なら既存のものに `ika kb append` / `edit` で足し、作ったファイルは `ika kb rm` で消してよい。関連するなら本文からリンクを張る。「README の『関連』に足す候補」が出ていれば、その README の「関連」に足す。何も出なければ似たものは無い（「調査」「まとめ」のような一般的な語だけのタイトルでは出ない）
-   CLI が無ければ `assets/` のひな形をコピーし、[references/kb-format.md](references/kb-format.md) のパス規則で作る
+   CLI が無ければ [assets/note.md](assets/note.md)・[assets/insight.md](assets/insight.md) のひな形をコピーし、[references/kb-format.md](references/kb-format.md) のパス規則で作る
 5. 本文を書く（`--stdin` で渡していればここまでで済んでいる）
    - 冒頭の「要点」は3行以内で、後から読んだ自分が判断に使える形にする
    - 出典URLは `source:` と本文の両方に書く。引用と自分の解釈を分ける（KB のノートの話。製品のコード・ドキュメントでは一次情報の URL だけを書き、KB を出典にしない）
