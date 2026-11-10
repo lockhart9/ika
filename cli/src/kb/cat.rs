@@ -185,6 +185,37 @@ fn outline(name: &str, text: &str) -> String {
     out
 }
 
+/// 長い文書の要点: 見出しの前の本文と、`keep` に挙げた節（`##` の階層）だけを全文で出し、
+/// 残りの節は見出しと字数だけを並べる。`keep` の節が1つも無ければ None（呼び出し側が全文を出す）
+pub(crate) fn digest(text: &str, keep: &[&str]) -> Option<String> {
+    let lines = split_lines(text);
+    let heads = headings(text);
+    let top = heads.iter().map(|h| h.level).min()?;
+    let tops: Vec<&Heading> = heads.iter().filter(|h| h.level == top).collect();
+    if !tops.iter().any(|h| keep.contains(&h.title.as_str())) {
+        return None;
+    }
+    let front = frontmatter::head(text).lines().count();
+    let mut out = lines[front..tops[0].line - 1].concat();
+    let mut rest = Vec::new();
+    for h in tops {
+        if keep.contains(&h.title.as_str()) {
+            out.push_str(&lines[h.line - 1..h.end].concat());
+        } else {
+            rest.push(format!(
+                "{}（{}字）",
+                h.title,
+                chars_in(&lines, h.line, h.end)
+            ));
+        }
+    }
+    let mut out = with_newline(out.trim_matches('\n').to_string());
+    if !rest.is_empty() {
+        out.push_str(&format!("\nほかの節: {}\n", rest.join("・")));
+    }
+    Some(out)
+}
+
 fn with_newline(mut text: String) -> String {
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
@@ -335,6 +366,28 @@ mod tests {
         assert_eq!(lines_text("a\nb\nc\n", ":2").unwrap(), "a\nb\n");
         assert!(lines_text("a\nb\n", "3").is_err());
         assert!(lines_text("a\nb\n", "2:1").is_err());
+    }
+
+    #[test]
+    fn digest_keeps_named_sections_and_lists_the_rest() {
+        let doc = "---\ntitle: T\n---\n\n一行説明\n\n## 目的\n\n長い説明\n\n## 現状\n\n- 公開済み\n\n### 補足\n\n細部\n\n## 関連\n\n- リンク\n";
+        let out = digest(doc, &["現状", "課題"]).unwrap();
+        assert!(out.starts_with("一行説明\n"), "{out}");
+        assert!(
+            out.contains("## 現状\n\n- 公開済み\n\n### 補足\n\n細部\n"),
+            "{out}"
+        );
+        assert!(
+            !out.contains("長い説明") && !out.contains("リンク"),
+            "{out}"
+        );
+        assert!(
+            out.ends_with("ほかの節: 目的（9字）・関連（10字）\n"),
+            "{out}"
+        );
+        assert!(!out.contains("title:"), "フロントマターは出さない");
+        assert_eq!(digest(doc, &["無い節"]), None);
+        assert_eq!(digest("見出しなし\n", &["現状"]), None);
     }
 
     #[test]

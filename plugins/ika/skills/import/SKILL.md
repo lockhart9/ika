@@ -8,8 +8,8 @@ compatibility: ika CLI が必要（変換は ika import が行い、外部ツー
 
 外部のドキュメントを `ika import` で Markdown にし、全文を KB に置く。原本が Drive や Notion にあっても、どのクライアント（Codex・ChatGPT を含む）からも同じ内容を読めるようにするため。全文は原本の写しで、判断に使う要点は README・要件書・ノートに書き起こしてリンクする。
 
-KB は環境変数 `IKA_HOME` のディレクトリにある。読み書きは `ika` CLI だけで行い、KB のファイルを直接 Read/Write/rg しない。書式は [references/kb-format.md](references/kb-format.md)。原本の取り方は [references/sources.md](references/sources.md)。
-製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
+KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら設定を頼む）。読み書きは `ika` CLI だけで行い、ファイルを直接 Read/Write/rg しない。原本の取り方は [references/sources.md](references/sources.md)。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く。出典は一次情報の URL だけ。詳しくは [cycle の資料](../cycle/references/product-repo.md)）。
 
 取り込んだ資料は `type: source` で、次のどちらかに置かれる。
 
@@ -20,7 +20,7 @@ KB は環境変数 `IKA_HOME` のディレクトリにある。読み書きは `
 
 ## 手順
 
-1. 置き場所を決める（`ika project list`・`ika domain list`）。迷ったら「何の判断に使うか」で決める（[references/kb-format.md](references/kb-format.md)）
+1. 置き場所を決める（`ika project list`・`ika domain list`）。迷ったら「何の判断に使うか」で決める（迷ったときだけ [references/kb-layout.md](references/kb-layout.md) を読む）
 2. 原本を手に入れて取り込む。取り方は [references/sources.md](references/sources.md)
    ```bash
    ika import docs/spec.md docs/api.md --project <name> --tags spec    # ファイル（複数可。原本はファイルの絶対パス）

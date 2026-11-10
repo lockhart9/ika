@@ -5,7 +5,7 @@ cycle の 1 の詳しい手順。目的は「要件を決めるのに足りる�
 ## KB から始める
 
 ```bash
-ika project show <name> --readme                       # 概要・関連する決定と知見
+ika project show <name> --readme                       # 概要（長い README は要点だけ。全文は --full）・関連する決定と知見
 ika kb search <語> <言い換え> --any -p <name> -l         # プロダクトに紐づくもの
 ika kb search <語> <言い換え> --any -d business -l       # 他のプロダクトで調べた市場・制度
 ika kb search --type insight -l                         # 横断の知見

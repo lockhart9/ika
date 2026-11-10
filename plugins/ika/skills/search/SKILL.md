@@ -1,23 +1,23 @@
 ---
 name: search
 description: ika のナレッジベース（プロダクト概要・調査メモ・知見・意思決定ログ）を検索して答える。「前に調べた〜は？」「〜について何を決めたっけ」「KBにある？」「過去の知見を踏まえて」で使う。製品リポジトリ（ika 自身を除く）には ika・KB への言及を書かない。
-compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
+compatibility: ika CLI と環境変数 IKA_HOME が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 
 # search: ナレッジを検索して答える
 
-KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。構成と書式は [references/kb-format.md](references/kb-format.md)。
-製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
+KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら設定を頼む）。読み書きは `ika` CLI だけで行い、ファイルを直接 Read/Write/rg しない。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く。出典は一次情報の URL だけ。詳しくは [cycle の資料](../cycle/references/product-repo.md)）。
 KB にアクセスできない環境では、プロジェクトに上げられたナレッジファイル（`knowledge-*.md`。各ノートの先頭に `<!-- path: ... -->` がある）を同じ手順で探す。
 
 ## 手順
 
-1. 対象プロダクトが話題にあれば `ika project list` で `name` を確かめ、`ika project show <name> --readme` で概要（README）と関連する決定・知見・ノートの一覧を一度に見る
+1. 対象プロダクトが話題にあれば `ika project list` で `name` を確かめ、`ika project show <name> --readme` で概要（README）と関連する決定・知見・ノートの一覧を一度に見る。長い README は「現状」「課題・次の打ち手」だけが出るので、ほかの節は `ika kb cat <README> --section "技術"` で読む（全文は `--full`）。取り込んだ資料は件数だけ出る
 2. 領域を絞る。ビジネス・ドメインの問いなら `-d business`、技術の問いなら `-d tech`（一覧は `ika domain list`）。当たらなければ領域を外して全体に広げる
 3. `ika kb search` で絞り込む。検索語は部分一致・大文字小文字無視で、日本語は表記ゆれ（カタカナ／英語、略称）を `--any` で並べる
    ```bash
    ika kb search 'review' 'レビュー' --any -d tech -l      # どれかを含むファイル。-l でファイル名のみ
-   ika kb search 'review' 'レビュー' -p <name>             # すべて含むファイル。一致した行も出る
+   ika kb search 'review' 'レビュー' -p <name>             # すべて含むファイル。タイトルと、本文の一致行（語の周り 100 字）も出る
    ika kb search -t <tag> -d business -l           # タグで絞る（検索語なしでもよい）
    ika kb search --type decision --status accepted -l   # 有効な決定
    ika kb search --type spec -p <name> -l            # 要件書（status: draft 承認待ち / approved / done 実装済み / dropped）
@@ -28,7 +28,7 @@ KB にアクセスできない環境では、プロジェクトに上げられ�
    ika kb cat <path> --lines 40:80                   # grep -n で見つけた行の周辺だけ読む（--frontmatter でフロントマターのみ）
    ika kb grep -n -C2 'review|レビュー' kb/tech           # 正規表現・前後の行など自由に探す。中身は ripgrep（オプションは許可されたものだけ）
    ```
-   `ika kb search` は既定で20ファイル（`-l` と検索語なしは50）・1ファイル3行までに絞る。標準エラーに「N 件（上位 M 件を表示）」と出たら、後ろが切れている。`-p`・`-d`・`--type`・`-t` で絞るか、`-n` を増やす（`-n 0` で全件）。「KBに記録なし」と答えるのは、切れていないことを確かめてから
+   `ika kb search` は既定で20ファイル（`-l` と検索語なしは50）・1ファイル3行までに絞る。まず見出し行のタイトルで選び、要るものだけ `ika kb cat` で読む。標準エラーに「N 件（上位 M 件を表示）」と出たら、後ろが切れている。`-p`・`-d`・`--type`・`-t` で絞るか、`-n` を増やす（`-n 0` で全件）。「KBに記録なし」と答えるのは、切れていないことを確かめてから
    `ika kb search` で足りない探し方（正規表現、前後の行、単語境界など）は `ika kb grep` を使う。検索範囲は kb/ の中に限られる。結果は信頼度順にならないので、当たったファイルの `type`・`status` は自分で確かめる
    CLI が使えない環境でだけ、`IKA_HOME` 下の `kb/` を `rg` で直接探す
 4. 数値や推移を問われたら、表形式データも見る。`ika data ls` で一覧し、`ika data show <name>` で列を確かめ、`ika data sql "select ..."` で集計する（SELECT のみ。テーブル名はデータセット名）。ノートや知見がデータセットを引用していることもある

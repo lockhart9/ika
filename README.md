@@ -53,7 +53,7 @@ AI は `kb/` や `data/` のファイルを直接いじらず、必ず `ika` コ
 | 取り込んだ資料 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 外部のドキュメントの全文。`ika import` が Rust だけで変換し、取り込み直せる |
 | 表データ | `data/datasets.sqlite3` | 件数が増えていく数値や記録。`ika data` で扱う |
 
-領域は最初から `business`（ビジネス・ドメイン知識）と `tech`（技術）に分けてあります。書式の詳細は [`docs/kb-format.md`](docs/kb-format.md) と [`docs/data-format.md`](docs/data-format.md) です。
+領域は最初から `business`（ビジネス・ドメイン知識）と `tech`（技術）に分けてあります。書式の詳細は [`docs/kb-format.md`](docs/kb-format.md)（書き方）・[`docs/kb-layout.md`](docs/kb-layout.md)（置き場所）と [`docs/data-format.md`](docs/data-format.md) です。
 
 ## はじめる
 
@@ -192,7 +192,7 @@ ika domain add <name> --summary "何を置く領域か"    # business・tech 以
 
 ```
 AGENTS.md          全クライアント共通の指示の正本（CLAUDE.md はこれを読み込むだけ）
-docs/              KB・登録簿の書式（kb-format.md・data-format.md）、図の記法（diagrams.md）、CLI の全コマンド（cli.md）の正本
+docs/              KB・登録簿の書式（kb-format.md・kb-layout.md・data-format.md）、図の記法（diagrams.md）、CLI の全コマンド（cli.md）の正本
 templates/         ノートのひな形（ビルド時にバイナリへ埋め込む）
 plugins/ika/       ika プラグイン（Claude・OpenAI 共通）
   skills/<name>/     スキル。references/・assets/ は ika sync が正本からコピー
@@ -213,7 +213,7 @@ claude plugin validate .     # プラグインとマーケットプレイスの�
 ```
 
 - `main` への直接 push はできません。変更は PR で出し、CI（fmt・clippy・test）が通って、オーナーのレビューを経てマージします
-- `docs/kb-format.md` や `templates/` を直したら `ika sync` でスキル側のコピーを更新します。`templates/` はバイナリにも埋め込まれるので `cargo install --path cli` もやり直します
+- `docs/kb-format.md`・`docs/kb-layout.md` や `templates/` を直したら `ika sync` でスキル側のコピーを更新します。`templates/` はバイナリにも埋め込まれるので `cargo install --path cli` もやり直します
 - Rust のモジュールは `mod.rs` を使わず、`foo.rs`（子モジュールがあれば `foo/`）で書きます
 
 ### スキルを直したとき

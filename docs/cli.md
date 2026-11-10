@@ -8,7 +8,7 @@ export IKA_HOME=<KB を置くディレクトリ>          # KB の場所。シ�
 ika init [--import <旧リポジトリ>]   # KB を作り、手元だけの git にする。--import は旧リポジトリの kb/・data/*.csv を取り込む
 ika project list                # 登録済みプロダクト
 ika project add <name> [--path <リポジトリのパス>] --summary "..."   # --path はコードのあるプロダクトだけ。事業・副業の検討なら省略
-ika project show <name> [--readme] [-n 20]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧（既定は20件まで。-n 0 で全件。--readme は全文）
+ika project show <name> [--readme | --full] [-n 20]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧（1件1行。既定は20件まで。取り込んだ資料は件数だけ。-n 0 で資料も含めて全件）。--readme は README も出す（3000字を超える README は「現状」「課題・次の打ち手」の節と、ほかの節の見出し・字数だけ。ほかの節は ika kb cat --section）。--full は README を全文で出す
 ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]   # 登録済みの項目を書き換える
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
@@ -20,7 +20,7 @@ ika import <file> --print       # KB に書かず、変換した Markdown を表
 ika import --list [-p <name>]   # 取り込み済みの資料と原本の一覧
 ika kb ls [kb/tech]             # kb/ 配下の Markdown を一覧（パスは IKA_HOME 下の kb/ から。kb/ の外は操作できない）
 ika kb cat kb/tech/notes/2026/2026-10-14-foo.md   # 全文。--outline（見出し一覧と各節の行範囲・文字数）/ --section "見出し"（その節だけ。同名があれば "## 技術" と階層を付ける）/ --lines 40:80（行範囲。grep -n の行番号で）/ --frontmatter で一部だけ読める。同時に指定できるのは1つ。8000字を超えるファイルは指定がなければ見出し一覧だけを出す（全文は --full。標準エラーに案内が出る）
-ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では、含む検索語の種類が多い順 → 一致行が多い順 → 新しい日付の順。出力は既定で20ファイル（-l と検索語なしは50）・1ファイル3行・1行160字までで、超えると標準エラーに件数を出す（-n で増やす、-n 0 で無制限。語が一般的だと信頼度順のまま後ろが切れるので、-p -d --type で絞る）
+ika kb search review レビュー --any -d tech -p <name> -t <tag> -l   # 本文＋フロントマター（-p プロダクト -t タグ --type --status）で検索。--any は OR、-l でファイル名のみ。結果は信頼度順（採用済みの決定 → 知見 → プロダクト概要 → 案の決定 → ノート → 覆された決定）で、同順位では、含む検索語の種類が多い順 → 一致行が多い順 → 新しい日付の順。見出し行にタイトルを出し、一致行は本文だけ（フロントマターにだけ当たったら「（title・tags に一致）」と項目名を出す）。出力は既定で20ファイル（-l と検索語なしは50）・1ファイル3行・1行100字（語の周り）までで、超えると標準エラーに件数を出す（-n で増やす、-n 0 で無制限。語が一般的だと信頼度順のまま後ろが切れるので、-p -d --type で絞る）
 ika kb grep -n -C2 'review|レビュー' kb/tech   # ripgrep で検索する（正規表現・文脈行・-g・--json など。要 rg）。パスは IKA_HOME からの相対で kb/ の中だけ（省略すると kb/ 全体）。rg のオプションは許可リストにあるものだけ通し、--pre・-z・-f・-L など外部コマンドを動かす・kb/ の外を読むものは拒否する
 ika kb fts 申請を取り下げたい [-d tech -p <name> -t <tag> --type ... --status ... --any -l -n 20]   # 日本語の形態素解析つきの全文検索（ika serve の検索画面が使う。エージェントの検索は kb search）。文でも引け、関連度順に並ぶ（上位20件。検索語なしは全件を新しい日付順）。語の途中でも当たる（2文字以上）。索引は IKA_HOME/.cache/fts/ にあり、検索のたびに変わったファイルだけ自動で入れ直す
 ika kb index [--rebuild]        # fts の索引に kb/ の変更を反映する / 一から作り直す
@@ -46,7 +46,7 @@ ika data delete <name> --where "..."   # 行を消す（訂正は消して追記
 ika data rm <name>                  # データセットごと消す
 ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる。検索語は結果の抜粋と、そこから開いたページ（`?hl=`）で黄色くハイライトする
 ika check                       # KB・登録簿・データセット定義・図の記法の検証。14 日以内のノートでどこからもリンクされていないものは「注意」に出す（失敗にはしない）。リポジトリ内で実行するとプラグインも検証する
-ika sync                        # docs/kb-format.md・templates/ をプラグインのスキルにコピー（リポジトリ内で実行）
+ika sync                        # docs/kb-format.md・kb-layout.md・diagrams.md・templates/ を、使うスキルにだけコピーする（配り先から外れたコピーは消す。リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
 ika export claude [--with-kb] [--domain <領域>]... [--no-projects] [--with-sources]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る
 ika export chatgpt [--domain <領域>]... [--no-projects]   # dist/chatgpt/（ChatGPT web のプロジェクト用。IKA_HOME の KB を束ねる。リポジトリ内で実行）

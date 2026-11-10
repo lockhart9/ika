@@ -47,7 +47,9 @@ const FILES_LIMIT: usize = 50;
 /// 1 ファイルあたりに出す一致行の数
 const MAX_LINES: usize = 3;
 /// 一致行を切り詰める長さ（字）
-const LINE_WIDTH: usize = 160;
+const LINE_WIDTH: usize = 100;
+/// 長い行を切るとき、一致した語の前に残す長さ（字）
+const LEAD: usize = 30;
 
 /// 一致したファイル1件分
 pub struct Hit {
@@ -59,7 +61,18 @@ pub struct Hit {
     pub reviewed: Option<String>,
     pub rel: PathBuf,
     pub label: String,
+    pub title: String,
+    /// 本文の一致行（フロントマターの行は入れない。見出し行と重なるので `front` に項目名だけ残す）
     pub lines: Vec<(usize, String)>,
+    /// 検索語が当たったフロントマターの項目名（`title`・`tags` など）
+    pub front: Vec<String>,
+}
+
+impl Hit {
+    /// 一致した行の数（本文とフロントマター）。並び順に使う
+    fn matches(&self) -> usize {
+        self.lines.len() + self.front.len()
+    }
 }
 
 /// 条件に合うファイルを、信頼度順（確定した判断 → 知見 → … → ノート）、同じ順位では一致の多い順・新しい日付順で返す
@@ -95,20 +108,27 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
             continue;
         }
         let terms_found = terms.iter().filter(|t| found(t)).count();
-        let lines = text
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| {
-                let line = line.to_lowercase();
-                terms.iter().any(|t| line.contains(t.as_str()))
-            })
-            .map(|(n, line)| (n + 1, line.trim().to_string()))
-            .collect();
+        let front_lines = frontmatter::head(&text).lines().count();
+        let mut lines = Vec::new();
+        let mut front = Vec::new();
+        for (n, line) in text.lines().enumerate() {
+            let lower = line.to_lowercase();
+            if !terms.iter().any(|t| lower.contains(t.as_str())) {
+                continue;
+            }
+            if n < front_lines {
+                front.push(line.split(':').next().unwrap_or("").trim().to_string());
+            } else {
+                lines.push((n + 1, line.trim().to_string()));
+            }
+        }
         let (rank, date, label) = weight(&text);
-        let reviewed = frontmatter::parse(&text)
-            .ok()
-            .flatten()
-            .and_then(|fields| review::label_of(&fields));
+        let fields = frontmatter::parse(&text).ok().flatten();
+        let title = fields
+            .as_ref()
+            .and_then(|f| f.get("title").cloned())
+            .unwrap_or_default();
+        let reviewed = fields.and_then(|fields| review::label_of(&fields));
         hits.push(Hit {
             rank,
             terms_found,
@@ -116,7 +136,9 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
             reviewed,
             rel: rel.to_path_buf(),
             label,
+            title,
             lines,
+            front,
         });
     }
     // 確定した判断・蒸留した知見を前に、生のメモを後ろに。同じ順位では、語を多く含むものが先、
@@ -125,7 +147,7 @@ pub fn find(root: &Path, args: &Args) -> Result<Vec<Hit>> {
         (
             h.rank,
             Reverse(h.terms_found),
-            Reverse(h.lines.len()),
+            Reverse(h.matches()),
             Reverse(h.date.clone()),
         )
     };
@@ -151,12 +173,20 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
             .reviewed
             .as_ref()
             .map_or(String::new(), |r| format!(" {r}"));
+        let title = if hit.title.is_empty() {
+            String::new()
+        } else {
+            format!("  {}", hit.title)
+        };
         println!(
-            "{}  [{}] {}{reviewed}",
+            "{}  [{}] {}{reviewed}{title}",
             hit.rel.display(),
             hit.label,
             hit.date
         );
+        if hit.lines.is_empty() && !hit.front.is_empty() {
+            println!("  （{} に一致）", hit.front.join("・"));
+        }
         for (n, line) in hit.lines.iter().take(MAX_LINES) {
             println!("  {n}: {}", clip(line, &terms, LINE_WIDTH));
         }
@@ -172,7 +202,7 @@ pub fn run(root: &Path, args: Args) -> Result<()> {
     Ok(())
 }
 
-/// 長い行を `width` 字に切る。最初に当たった語が残るよう、その少し前から取り、切った側に `…` を付ける
+/// 長い行を `width` 字に切る。最初に当たった語の周りだけが残るよう、その少し前から取り、切った側に `…` を付ける
 fn clip(line: &str, terms: &[String], width: usize) -> String {
     let chars: Vec<char> = line.chars().collect();
     if chars.len() <= width {
@@ -185,12 +215,8 @@ fn clip(line: &str, terms: &[String], width: usize) -> String {
         .min()
         .map_or(0, |byte| lower[..byte].chars().count())
         .min(chars.len() - 1);
-    // 一致の前に少し文脈を残す
-    let start = if first + 20 > width {
-        first.saturating_sub(40)
-    } else {
-        0
-    };
+    // 一致の前に少し文脈を残す。行頭から遠い一致は、その周りだけを抜き出す
+    let start = first.saturating_sub(LEAD);
     let end = (start + width).min(chars.len());
     format!(
         "{}{}{}",
@@ -309,29 +335,35 @@ mod tests {
     fn clip_keeps_the_first_match_in_view() {
         let terms = vec!["語".to_string()];
         let short = "短い行 語";
-        assert_eq!(clip(short, &terms, 160), short);
+        assert_eq!(clip(short, &terms, 100), short);
 
         let late = format!("{}語{}", "あ".repeat(600), "い".repeat(400));
-        let clipped = clip(&late, &terms, 160);
+        let clipped = clip(&late, &terms, 100);
         assert!(clipped.contains('語'), "{clipped}");
         assert!(clipped.starts_with('…') && clipped.ends_with('…'));
         assert!(
-            clipped.chars().count() <= 162,
+            clipped.chars().count() <= 102,
             "{}",
             clipped.chars().count()
         );
 
         let early = format!("語{}", "い".repeat(400));
-        let clipped = clip(&early, &terms, 160);
+        let clipped = clip(&early, &terms, 100);
         assert!(clipped.starts_with('語') && clipped.ends_with('…'));
-        assert!(clipped.chars().count() <= 161);
+        assert!(clipped.chars().count() <= 101);
+
+        // 行頭から少し離れた一致でも、前を落として語の周りだけにする
+        let middle = format!("{}語{}", "あ".repeat(60), "い".repeat(400));
+        let clipped = clip(&middle, &terms, 100);
+        assert!(clipped.starts_with('…'), "{clipped}");
+        assert_eq!(clipped.chars().position(|c| c == '語'), Some(31));
     }
 
     #[test]
     fn clip_is_case_insensitive_and_char_safe() {
         let terms = vec!["review".to_string()];
         let line = format!("{}Review{}", "日本語".repeat(100), "x".repeat(300));
-        let clipped = clip(&line, &terms, 160);
+        let clipped = clip(&line, &terms, 100);
         assert!(clipped.contains("Review"), "{clipped}");
     }
 

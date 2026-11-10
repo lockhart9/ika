@@ -1,13 +1,13 @@
 ---
 name: decide
 description: プロダクトやビジネスの意思決定を、過去のナレッジを踏まえて整理し、決定ログとして ika に記録する。「どっちにすべき？」「〜を決めたい」「判断材料を整理して」「決めたので記録して」で使う。
-compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
+compatibility: ika CLI と環境変数 IKA_HOME が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 
 # decide: 意思決定を支援し記録する
 
-KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。構成と書式は [references/kb-format.md](references/kb-format.md)、ひな形は [assets/decision.md](assets/decision.md)。
-製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
+KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら設定を頼む）。読み書きは `ika` CLI だけで行い、ファイルを直接 Read/Write/rg しない。フロントマターとパスは `ika new` が作るので、書式（[references/kb-format.md](references/kb-format.md)）は `ika check` の指摘が出たとき・CLI が無いときだけ読む。CLI が無いときのひな形は [assets/decision.md](assets/decision.md)。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く。出典は一次情報の URL だけ。詳しくは [cycle の資料](../cycle/references/product-repo.md)）。
 KB にアクセスできない環境（claude.ai・ChatGPT web など）では、保存先のパスとフロントマター付きの本文を出力し、ユーザーに保存してもらう。
 
 ## 手順

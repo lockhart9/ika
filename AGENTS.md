@@ -37,7 +37,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 | パス | 内容 |
 |---|---|
-| `docs/kb-format.md` | KB の書式の正本（フロントマター・置き場所・リンク） |
+| `docs/kb-format.md`・`docs/kb-layout.md` | KB の書式（フロントマター・リンク）と置き場所の正本 |
 | `docs/diagrams.md` | 図の記法（`seq`・`flow` など）の正本 |
 | `docs/cli.md` | `ika` の全コマンドと主なオプション |
 | `docs/data-format.md` | 登録簿など表形式データの書式 |
@@ -51,7 +51,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `dist/` | `ika export` の出力（Git管理外） |
 | `local/` | Git に入れない下書き・機密メモ（Git管理外） |
 
-詳しい書式は [`docs/kb-format.md`](docs/kb-format.md) と [`docs/data-format.md`](docs/data-format.md)。
+書式は [`docs/kb-format.md`](docs/kb-format.md)・[`docs/data-format.md`](docs/data-format.md)。
 <!-- /repo-only -->
 
 ## 守ること
@@ -59,7 +59,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 - ナレッジの文章はテキスト（Markdown）で持ち、登録簿は CSV にする。バイナリやDBを正本にしない。例外は表形式データ（件数が増え、集計して使うもの）で、`data/datasets.sqlite3` に持つ。これは `ika data` 経由でだけ読み書きし、人が直接読まない
 - 文章で書く知見・判断と、表で溜める観測を分ける。数値や記録が行として増え続けるもの（価格の履歴・計測値など）は `ika data` のデータセットに入れ、そこから言えることをノートや insight に書く。データセットは本文で名前を引用する
 - Markdown は先頭にフロントマターを付ける（書式は `docs/kb-format.md`）。書いたら `ika check` で検証する
-- ビジネス・ドメイン知識と技術は領域（`kb/business/` と `kb/tech/`）を分けて置く。迷ったら「何の判断に使うか」で決め、もう一方からリンクする（`docs/kb-format.md`）
+- ビジネス・ドメイン知識と技術は領域（`kb/business/` と `kb/tech/`）を分けて置く。迷ったら「何の判断に使うか」で決め、もう一方からリンクする（`docs/kb-layout.md`）
 - 「プロダクト」はコードのあるサービスに限らず、事業・副業の検討も含む（その場合 `path` は空）。プロダクト名は `data/projects.csv` の `name` と一致させる。新しいプロダクトは `ika project add` で登録する（手で増やすなら CSV の行と `kb/projects/<name>/README.md` を両方作る）
 - 事実と意見を分ける。出典がある情報は `source:` にURLを書き、本文でも引用元を示す（KB の中の話。製品のコード・ドキュメントでは一次情報の URL だけを書き、KB を出典にしない）
 - 日付は絶対日付（`2026-10-14`）で書く。「先週」「最近」は使わない
@@ -97,7 +97,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 - `plugins/ika/skills/<name>/SKILL.md` に書き、`name` はディレクトリ名と同じにする（プラグイン名で名前空間が付くので `ika-` は付けない）。`description` には「何をするか」と「どんな依頼で使うか」を書く
 - 本文は短く保ち（500行未満）、詳しい資料は `references/`、ひな形は `assets/` に置いて相対パスでリンクする
-- プラグインは自己完結させる（インストール時にプラグイン外へのシンボリックリンクは辿られない）。KB の書式とテンプレートの正本は `docs/kb-format.md`・`docs/diagrams.md` と `templates/` で、スキル内の `references/kb-format.md`・`references/diagrams.md` と `assets/*.md` は `ika sync` が作るコピー。コピー側は直接編集しない
+- プラグインは自己完結させる（インストール時にプラグイン外へのシンボリックリンクは辿られない）。KB の書式とテンプレートの正本は `docs/kb-format.md`・`docs/kb-layout.md`・`docs/diagrams.md` と `templates/` で、スキル内の同名の `references/*.md` と `assets/*.md` は `ika sync` が使うスキルにだけ配るコピー。コピー側は直接編集しない
 - マニフェストは2つある: `plugins/ika/.claude-plugin/plugin.json`（Claude）と `plugins/ika/plugin.json`（OpenAI）。`version` と `description` を揃える。プラグイン（スキル・references・assets・マニフェスト）を直したら、`ika install --bump patch` で version を上げて入れ直す（インストール済みのコピーは version が同じだと更新されない。`ika check` が上げ忘れを検出する）
 - `ika check` と `claude plugin validate .` で検証する
 

@@ -1,15 +1,15 @@
 ---
 name: project-sync
 description: 開発中のサービスのリポジトリを読み、ika のプロダクト概要（README）を最新にする。「〜の現状をKBに反映して」「プロダクト概要を更新」「全プロダクトの棚卸し」で使う。
-compatibility: KB（環境変数 IKA_HOME のディレクトリ）の読み書きには ika CLI が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
+compatibility: ika CLI と環境変数 IKA_HOME が必要。Claude Code・Codex・ChatGPT デスクトップアプリ向け
 ---
 
 # project-sync: プロダクト概要をリポジトリと同期する
 
 `path` が空のプロダクト（事業・副業の検討など）はリポジトリが無いので対象外。README は `capture`・`decide` の結果やユーザーへの聞き取りで更新する。
 
-KB は ika のリポジトリではなく環境変数 `IKA_HOME` のディレクトリにある。未設定だと `ika` は動かないので、設定を頼む。読み書きは `ika` CLI で行い、ファイルを直接 Read/Write/rg しない。対象リポジトリのパスは `data/projects.csv` の `path`。構成と書式は [references/kb-format.md](references/kb-format.md)。
-製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・PR に、ika・KB・`kb/` のパス・要件書を書かず、出典は一次情報の URL だけにする。詳しくは [cycle の資料](../cycle/references/product-repo.md)。
+KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら設定を頼む）。読み書きは `ika` CLI だけで行い、ファイルを直接 Read/Write/rg しない。対象リポジトリのパスは `data/projects.csv` の `path`。書式（[references/kb-format.md](references/kb-format.md)）は `ika check` の指摘が出たときだけ読む。
+製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く。出典は一次情報の URL だけ。詳しくは [cycle の資料](../cycle/references/product-repo.md)）。
 
 ## 手順
 
