@@ -23,7 +23,14 @@ const MARKETPLACES: &[&str] = &[
 ];
 
 /// KB に書くスキル。書式（フロントマター・ファイル名・リンク）と、そこからリンクする図の記法を配る
-const WRITERS: &[&str] = &["capture", "cycle", "decide", "project-add", "project-sync"];
+const WRITERS: &[&str] = &[
+    "brainstorm",
+    "capture",
+    "cycle",
+    "decide",
+    "project-add",
+    "project-sync",
+];
 
 /// 正本からスキルへ配るファイル（正本, スキル内のパス, 配り先。None は全スキル）。
 /// 読まれる量を減らすため、そのスキルが使うものだけを配る（SKILL.md からリンクしているかは `check` が確かめる）。

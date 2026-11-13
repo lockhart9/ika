@@ -4369,6 +4369,65 @@ fn default_outputs_stay_small() {
     assert!(show.out.len() <= 8_000, "{} bytes", show.out.len());
 }
 
+#[test]
+fn brainstorm_skill_draws_out_the_user_first_and_leans_on_the_kb() {
+    let skill = plugin_file("skills/brainstorm/SKILL.md");
+    for step in [
+        "## 1. 目的と用途を決める",
+        "## 2. KB を引く",
+        "## 3. 本人が先に出す",
+        "## 4. 問いと角度を足す",
+        "## 5. まとめて選ぶ",
+        "## 6. 記録して渡す",
+    ] {
+        assert!(skill.contains(step), "段階がない: {step}");
+    }
+    // 問いは 1 つずつ、AI の案は本人の後に印を付けて出す
+    assert!(skill.contains("1 回に 1 つ"));
+    assert!(skill.contains("【AI の案】"));
+    // 始める前も、ブレストの間も KB を引く
+    for command in [
+        "--type note -t brainstorm",
+        "--type decision",
+        "ika inbox ls",
+        "ika kb triage",
+        "ika kb search <語>",
+        "ブレストの間ずっと引く",
+        "KB に記録なし",
+    ] {
+        assert!(skill.contains(command), "KB の引き方がない: {command}");
+    }
+    // ブレストの記録と分かる目印
+    for mark in ["--tags brainstorm", "\"ブレスト: ", "--slug brainstorm-"] {
+        assert!(skill.contains(mark), "目印がない: {mark}");
+    }
+    assert!(skill.contains("個人のタスク整理は KB に残さず"));
+    assert!(skill.contains("references/modes.md") && skill.contains("assets/brainstorm.md"));
+
+    let modes = plugin_file("skills/brainstorm/references/modes.md");
+    for section in ["## 開発", "## 市場調査", "## タスク整理"] {
+        assert!(modes.contains(section), "用途の節がない: {section}");
+    }
+    for exit in ["cycle", "decide", "capture", "課題・次の打ち手"] {
+        assert!(modes.contains(exit), "出口がない: {exit}");
+    }
+
+    let template = plugin_file("skills/brainstorm/assets/brainstorm.md");
+    for section in [
+        "## 目的",
+        "## 本人の案",
+        "## AI の案",
+        "## 選んだもの",
+        "## 見送った案と理由",
+        "## 次の行動",
+    ] {
+        assert!(template.contains(section), "ひな形の節がない: {section}");
+    }
+
+    // テーマが決まらないときの入口
+    assert!(plugin_file("skills/cycle/SKILL.md").contains("`brainstorm` スキル"));
+}
+
 /// リポジトリにあるプラグインのファイル
 fn plugin_file(rel: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -4389,6 +4448,7 @@ fn skills_keep_ika_out_of_product_repos() {
     // ika を使わない人も同じリポジトリで開発するので、どのスキルも製品リポジトリに ika・KB の痕跡を残さない
     const RULE: &str = "製品リポジトリには ika・KB への言及を書かない";
     for skill in [
+        "brainstorm",
         "cycle",
         "search",
         "capture",
