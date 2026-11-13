@@ -1,6 +1,6 @@
 ---
 name: import
-description: 外部の資料を Markdown にして ika のナレッジベースに全文で取り込み、要点を README・要件書・ノートに反映する。対象は製品リポジトリの仕様書、Google Drive・Notion、docx・xlsx・pptx・pdf・html・csv。「この仕様書を取り込んで」で使う。
+description: 外部の資料を Markdown にして ika のナレッジベースに全文で取り込み、要点を README・要件書・ノートに反映する。取り込まずに参照先として登録もする。対象は製品リポジトリの仕様書、Google Drive・Notion、docx・xlsx・pptx・pdf・html・csv。「この仕様書を取り込んで」で使う。
 compatibility: ika CLI が必要（変換は ika import が行い、外部ツールは要らない）。Google Drive・Notion から取るには、それぞれの MCP コネクタが要る
 ---
 
@@ -45,6 +45,32 @@ KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら�
    - README の「関連」に、取り込んだ資料へのリンクを足す
    - 全文をノートにコピーしない。引用は必要な数行だけにする
 5. `ika check` を通す
+
+## 取り込まずに参照先として登録する
+
+会社の Drive のフォルダ、共有のスプレッドシート、別の SaaS、手元のフォルダのように、写しきれない・変わり続ける・権限の要る場所は、取り込まずに外部ナレッジの目録に登録する。`search`・`brainstorm`・`cycle` の調査が KB の後に目録を見て、必要なときだけその場で引く。「〜を参照先に登録して」「会社の Drive も見るようにして」と頼まれたときもこの手順。
+
+| 写す（`ika import`） | 登録する（`ika external add`） |
+|---|---|
+| 判断の根拠として、その時点の版を残したい | 量が多い（フォルダごと・ワークスペースごと） |
+| 量が少ない・ほとんど変わらない | 変わり続ける（共有のスプレッドシート・議事録） |
+| コネクタの無いクライアントでも全文を読みたい | 権限が要る・社外秘で KB に写したくない |
+
+```bash
+ika external add work-drive-specs --kind connector --connector "Google Drive" \
+  --location https://drive.google.com/drive/folders/<id> -p <name> -d business \
+  --about "営業資料と価格表（スプレッドシート）。価格・顧客の問いで見る"
+ika external add reading-notes --kind folder --location ~/Documents/notes --about "読書メモ。技術書の要点を探すときに見る"
+ika external add vendor-docs --kind web --location https://docs.example.com --about "使っている API の公式ドキュメント"
+ika external list [-p <name>] [-d <領域>]    # 登録の一覧（読み方つき）
+ika external rm <name>                       # 目録から外す（外部の中身には触れない）
+```
+
+- `--kind`: `connector`（クライアントのコネクタ・MCP で読む。`--connector` に、クライアントでの表示名を書く）／`folder`（手元のフォルダ。絶対パスか `~`）／`web`
+- `--about` は、何が入っていて、どんな問いのときに見るかを書く。エージェントが見るかどうかをこれで決める。Drive のコネクタは、アップロードした xlsx・pdf を検索で返さないことがあるので、中身（どのスプレッドシートに何があるか）も書いておく
+- `-p`・`-d` を省くと、すべてのプロダクト・領域に関係する扱いになる
+- 目録は `IKA_HOME` ごとにある。仕事と個人で見る先が違うなら `IKA_HOME` を分ける
+- 資格情報（パスワード・API キー・トークン）は登録しない。つなぐのはクライアントのコネクタの設定で行う
 
 ## 取り込み直す
 

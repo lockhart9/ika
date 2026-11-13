@@ -4493,3 +4493,333 @@ fn skills_keep_ika_out_of_product_repos() {
         assert!(text.contains("KB を出典にしない"));
     }
 }
+
+/// 外部ナレッジを登録する（`args` は名前の後に続く引数）
+fn external_add(f: &Fixture, name: &str, args: &[&str]) -> Run {
+    let mut full = vec!["external", "add", name];
+    full.extend_from_slice(args);
+    f.ika(&full)
+}
+
+const DRIVE: &[&str] = &[
+    "--kind",
+    "connector",
+    "--location",
+    "https://drive.google.com/drive/folders/x",
+    "--connector",
+    "Google Drive",
+    "--about",
+    "仕様書と価格表",
+];
+
+#[test]
+fn external_add_list_and_rm_keep_the_registry_and_commit() {
+    let f = Fixture::new("external-add");
+    f.git(&["init", "-q"]);
+    f.git(&["add", "-A"]);
+    f.git(&[
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.test",
+        "commit",
+        "-q",
+        "-m",
+        "first",
+    ]);
+    let commits = || f.git(&["rev-list", "--count", "HEAD"]).trim().to_string();
+    assert!(!f.exists("data/externals.csv"));
+
+    let before = commits();
+    let run = external_add(&f, "work-drive", DRIVE);
+    assert!(run.ok, "{}", run.err);
+    assert_ne!(commits(), before, "登録でコミットが増える");
+    let run = external_add(
+        &f,
+        "notes-folder",
+        &[
+            "--kind",
+            "folder",
+            "--location",
+            "~/notes",
+            "--about",
+            "読書メモ",
+        ],
+    );
+    assert!(run.ok, "{}", run.err);
+    let csv = f.read("data/externals.csv");
+    assert!(
+        csv.starts_with("name,kind,location,connector,projects,domains,about\n"),
+        "{csv}"
+    );
+    assert_eq!(csv.lines().count(), 3, "{csv}");
+
+    let list = f.ika(&["external", "list"]);
+    assert!(list.ok);
+    for expected in [
+        "work-drive  [connector: Google Drive]  https://drive.google.com/drive/folders/x",
+        "仕様書と価格表",
+        "Google Drive のコネクタ",
+        "notes-folder  [folder]  ~/notes",
+        "ファイルを直接読む",
+    ] {
+        assert!(list.out.contains(expected), "{expected}\n{}", list.out);
+    }
+
+    let before = commits();
+    assert!(f.ika(&["external", "rm", "notes-folder"]).ok);
+    assert_ne!(commits(), before, "外してもコミットが増える");
+    let list = f.ika(&["external", "list"]);
+    assert!(!list.out.contains("notes-folder"), "{}", list.out);
+    assert!(
+        !f.ika(&["external", "rm", "notes-folder"]).ok,
+        "無い名前は失敗"
+    );
+}
+
+#[test]
+fn external_add_rejects_bad_rows_and_writes_nothing() {
+    let f = Fixture::new("external-bad");
+    assert!(external_add(&f, "work-drive", DRIVE).ok);
+    let before = f.read("data/externals.csv");
+    let web = |extra: &[&'static str]| {
+        let mut args = vec![
+            "--kind",
+            "web",
+            "--location",
+            "https://example.test",
+            "--about",
+            "x",
+        ];
+        args.extend_from_slice(extra);
+        args
+    };
+    let cases: Vec<(&str, Vec<&str>)> = vec![
+        ("work-drive", web(&[])), // 重複
+        ("Bad_Name", web(&[])),   // 名前の形式
+        (
+            "a",
+            vec!["--kind", "drive", "--location", "x", "--about", "x"],
+        ), // 種類
+        (
+            "b",
+            vec!["--kind", "connector", "--location", "x", "--about", "x"],
+        ), // コネクタ名なし
+        ("c", web(&["-p", "nope"])), // 未登録のプロダクト
+        ("d", web(&["-d", "nope"])), // 未登録の領域
+        (
+            "e",
+            vec![
+                "--kind",
+                "web",
+                "--location",
+                "https://example.test",
+                "--about",
+                " ",
+            ],
+        ), // 説明が空
+    ];
+    for (name, args) in cases {
+        let run = external_add(&f, name, &args);
+        assert!(!run.ok, "{name} {args:?} は失敗する");
+        assert_eq!(f.read("data/externals.csv"), before, "{name}: 何も書かない");
+    }
+}
+
+#[test]
+fn external_list_narrows_by_project_and_domain() {
+    let f = Fixture::new("external-list");
+    let empty = f.ika(&["external", "list"]);
+    assert!(
+        empty.ok && empty.out.contains("外部ナレッジの登録はありません"),
+        "{}",
+        empty.out
+    );
+
+    f.write(
+        "data/projects.csv",
+        "name,path,url,status,summary\nfoo,,,active,Foo\nbar,,,active,Bar\n",
+    );
+    f.write("data/domains.csv", "name,summary\ntech,t\nbusiness,b\n");
+    let web = |extra: &[&'static str]| {
+        let mut args = vec![
+            "--kind",
+            "web",
+            "--location",
+            "https://example.test",
+            "--about",
+            "x",
+        ];
+        args.extend_from_slice(extra);
+        args
+    };
+    assert!(external_add(&f, "for-foo", &web(&["-p", "foo", "-d", "business"])).ok);
+    assert!(external_add(&f, "for-bar", &web(&["-p", "bar", "-d", "tech"])).ok);
+    assert!(external_add(&f, "for-all", &web(&[])).ok);
+
+    let names = |args: &[&str]| {
+        let mut full = vec!["external", "list"];
+        full.extend_from_slice(args);
+        let out = f.ika(&full).out;
+        ["for-foo", "for-bar", "for-all"]
+            .into_iter()
+            .filter(|n| out.contains(&format!("{n}  [")))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&[]), ["for-foo", "for-bar", "for-all"]);
+    assert_eq!(names(&["-p", "foo"]), ["for-foo", "for-all"]);
+    assert_eq!(names(&["-d", "tech"]), ["for-bar", "for-all"]);
+    assert_eq!(names(&["-p", "foo", "-d", "tech"]), ["for-all"]);
+}
+
+#[test]
+fn check_validates_the_external_registry() {
+    let f = Fixture::new("external-check");
+    f.write(
+        "data/externals.csv",
+        "name,kind,location,connector,projects,domains,about\n\
+         gone,folder,/nonexistent/ika-test-folder,,,,メモ\n",
+    );
+    let run = f.ika(&["check"]);
+    assert!(run.ok, "無いフォルダは注意だけ: {}", run.out);
+    assert!(run.out.contains("フォルダがありません"), "{}", run.out);
+
+    for bad in [
+        "x,drive,https://example.test,,,,a\n",
+        "x,connector,https://example.test,,,,a\n",
+        "x,web,https://example.test,,nope,,a\n",
+        "x,web,https://example.test,,,,a\nx,web,https://example.test,,,,a\n",
+    ] {
+        f.write(
+            "data/externals.csv",
+            &format!("name,kind,location,connector,projects,domains,about\n{bad}"),
+        );
+        let run = f.ika(&["check"]);
+        assert!(!run.ok, "{bad} は失敗する: {}", run.out);
+        assert!(run.out.contains("data/externals.csv: x:"), "{}", run.out);
+    }
+}
+
+#[test]
+fn project_show_names_the_related_externals() {
+    let f = Fixture::new("external-show");
+    let show = f.ika(&["project", "show", "foo"]);
+    assert!(!show.out.contains("外部ナレッジ"), "登録が無ければ出さない");
+    assert!(external_add(&f, "work-drive", DRIVE).ok);
+    f.write(
+        "data/projects.csv",
+        "name,path,url,status,summary\nfoo,,,active,Foo\nbar,,,active,Bar\n",
+    );
+    fs::create_dir_all(f.root().join("kb/projects/bar")).unwrap();
+    let web = [
+        "--kind",
+        "web",
+        "--location",
+        "https://example.test",
+        "--about",
+        "x",
+    ];
+    let mut only_bar = web.to_vec();
+    only_bar.extend(["-p", "bar"]);
+    assert!(external_add(&f, "bar-site", &only_bar).ok);
+
+    let show = f.ika(&["project", "show", "foo"]);
+    assert!(
+        show.out
+            .contains("外部ナレッジ 1 件: work-drive（場所と読み方は ika external list -p foo）"),
+        "{}",
+        show.out
+    );
+}
+
+#[test]
+fn exports_carry_the_external_registry_without_local_folders() {
+    let f = Fixture::new("external-export");
+    f.kb_with_two_domains();
+    let web = |extra: &[&'static str]| {
+        let mut args = vec![
+            "--kind",
+            "web",
+            "--location",
+            "https://example.test",
+            "--about",
+            "x",
+        ];
+        args.extend_from_slice(extra);
+        args
+    };
+    assert!(external_add(&f, "work-drive", DRIVE).ok);
+    assert!(external_add(&f, "tech-site", &web(&["-d", "tech"])).ok);
+    assert!(external_add(&f, "foo-site", &web(&["-p", "foo"])).ok);
+    assert!(
+        external_add(
+            &f,
+            "notes-folder",
+            &[
+                "--kind",
+                "folder",
+                "--location",
+                "/Users/me/secret",
+                "--about",
+                "x"
+            ]
+        )
+        .ok
+    );
+
+    let run = f.export(&["chatgpt"]);
+    assert!(run.ok, "{}", run.err);
+    let out = dist(&f, "chatgpt");
+    let csv = fs::read_to_string(out.join("externals.csv")).unwrap();
+    for name in ["work-drive", "tech-site", "foo-site"] {
+        assert!(csv.contains(name), "{name}\n{csv}");
+    }
+    assert!(
+        !csv.contains("notes-folder") && !csv.contains("/Users/me"),
+        "{csv}"
+    );
+    let instructions = fs::read_to_string(out.join("instructions.md")).unwrap();
+    assert!(instructions.contains("`externals.csv`"), "{instructions}");
+
+    // 範囲を絞ると、その範囲に関係する行だけ
+    let run = f.export(&["chatgpt", "--domain", "business", "--no-projects"]);
+    assert!(run.ok, "{}", run.err);
+    let csv = fs::read_to_string(out.join("externals.csv")).unwrap();
+    assert!(csv.contains("work-drive"), "{csv}");
+    assert!(
+        !csv.contains("tech-site") && !csv.contains("foo-site"),
+        "{csv}"
+    );
+
+    let run = f.export(&["claude", "--with-kb"]);
+    assert!(run.ok, "{}", run.err);
+    let out = dist(&f, "claude");
+    assert!(out.join("externals.csv").is_file());
+    let instructions = fs::read_to_string(out.join("instructions.md")).unwrap();
+    assert!(instructions.contains("`externals.csv`"), "{instructions}");
+
+    // 目録に書き出せる行が無ければ、ファイルも指示の行も出さない（前回の分は消える）
+    for name in ["work-drive", "tech-site", "foo-site"] {
+        assert!(f.ika(&["external", "rm", name]).ok);
+    }
+    assert!(f.export(&["claude", "--with-kb"]).ok);
+    assert!(!out.join("externals.csv").exists());
+    let instructions = fs::read_to_string(out.join("instructions.md")).unwrap();
+    assert!(!instructions.contains("`externals.csv`"));
+}
+
+#[test]
+fn skills_look_at_the_external_registry() {
+    let search = plugin_file("skills/search/SKILL.md");
+    assert!(search.contains("ika external list"));
+    assert!(search.contains("つながっていない"), "未接続のときの扱い");
+    assert!(search.contains("外部には書き込まない"));
+    for rel in [
+        "skills/import/SKILL.md",
+        "skills/brainstorm/SKILL.md",
+        "skills/cycle/references/research.md",
+    ] {
+        assert!(plugin_file(rel).contains("ika external"), "{rel}");
+    }
+    assert!(plugin_file("skills/import/SKILL.md").contains("ika external add"));
+}

@@ -62,6 +62,10 @@ pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
         }
     }
 
+    let (external_problems, external_notices) =
+        crate::external::check(root, &names, &domain_names)?;
+    problems.extend(external_problems);
+
     problems.extend(crate::data::check(root)?);
 
     let mut files = Vec::new();
@@ -85,6 +89,15 @@ pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
     }
 
     let notices = unlinked_recent_notes(root, &files)?;
+    let print_all_notices = || {
+        print_notices(&notices);
+        if !external_notices.is_empty() {
+            println!("\n注意（失敗にはしません）: 外部ナレッジの目録");
+            for notice in &external_notices {
+                println!("  {notice}");
+            }
+        }
+    };
     if problems.is_empty() {
         println!(
             "OK（{} プロダクト、{} 領域、{} ファイル）",
@@ -92,14 +105,14 @@ pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
             domains.len(),
             files.len()
         );
-        print_notices(&notices);
+        print_all_notices();
         return Ok(ExitCode::SUCCESS);
     }
     for problem in &problems {
         println!("{problem}");
     }
     println!("\n{} 件の問題があります", problems.len());
-    print_notices(&notices);
+    print_all_notices();
     Ok(ExitCode::FAILURE)
 }
 

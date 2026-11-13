@@ -42,7 +42,10 @@ ika kb search --type spec --status approved -p <name> -l         # 承認済み�
 ika kb search --type insight -p <name> -l                        # 知見
 ika kb search --type note -t brainstorm -p <name> -l             # 過去のブレスト
 ika inbox ls                                                     # 受信箱（未整理のメモ）
+ika external list -p <name>                                      # KB の外のナレッジ（会社の Drive など）の目録
 ```
+
+KB の外のナレッジは、目録の説明から関係するものだけを、話題が出たときにコネクタ・ファイル・Web で引く（読み方は `search` スキルの手順 5）。つながっていなければそう言い、KB だけで進める。
 
 テーマの語でも引く: `ika kb search <語> <言い換え> --any -l`（当たらなければ `ika kb fts <文>`）。技術とビジネスの両方（`-d tech`・`-d business`）を見る。タスク整理なら `ika kb triage` も使う（[modes.md](references/modes.md) のタスク整理の節）。
 
