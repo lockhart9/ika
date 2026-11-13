@@ -8,6 +8,7 @@ mod check;
 mod data;
 mod domain;
 mod export;
+mod external;
 mod frontmatter;
 mod import;
 mod inbox;
@@ -50,6 +51,11 @@ enum Command {
     Domain {
         #[command(subcommand)]
         command: domain::Command,
+    },
+    /// 外部ナレッジの目録（data/externals.csv）。KB の外の Drive・SaaS・手元のフォルダ・Web を、どこに何があり、いつ見るかで登録する
+    External {
+        #[command(subcommand)]
+        command: external::Command,
     },
     /// 表形式データ（価格の履歴・計測値など）を SQLite に溜めて読む
     Data {
@@ -103,6 +109,7 @@ fn run() -> anyhow::Result<ExitCode> {
         Command::Init(args) => init::run(&root::data_path()?, args)?,
         Command::Project { command } => project::run(&root::data_dir()?, command)?,
         Command::Domain { command } => domain::run(&root::data_dir()?, command)?,
+        Command::External { command } => external::run(&root::data_dir()?, command)?,
         Command::Data { command } => data::run(&root::data_dir()?, command)?,
         Command::Capture(args) => inbox::capture(&root::data_dir()?, args)?,
         Command::Inbox { command } => inbox::run(&root::data_dir()?, command)?,

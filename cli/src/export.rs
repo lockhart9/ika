@@ -115,6 +115,7 @@ fn claude(root: &Path, kb: Option<&Scope>) -> Result<()> {
         return Ok(());
     };
     let home = roots::data_dir()?;
+    let written = write_knowledge(&home, &out, scope)?;
     let mut instructions = client_instructions(root)?;
     instructions.push_str(
         "\n## claude.ai での使い方\n\n\
@@ -122,9 +123,12 @@ fn claude(root: &Path, kb: Option<&Scope>) -> Result<()> {
          `knowledge-projects.md`（プロダクト概要）、`projects.csv`・`domains.csv` にある。各ノートの先頭の `<!-- path: ... -->` が元のパス\n\
          - 知識ファイルは書き出した時点のスナップショットで、読み取り専用。記録を頼まれたら、保存先のパスとフロントマター付きの本文を出力する\n",
     );
+    if written.iter().any(|n| n == EXTERNALS) {
+        instructions.push_str(EXTERNALS_NOTE);
+    }
     fs::write(out.join("instructions.md"), instructions)?;
     println!("dist/claude/instructions.md");
-    for name in write_knowledge(&home, &out, scope)? {
+    for name in written {
         println!("dist/claude/{name}");
     }
     println!(
@@ -233,6 +237,10 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
          {}。依頼が当てはまるかは `skills.md` 冒頭の「スキル一覧」で判断し、当てはまったら該当節に従う\n",
         names.join("・")
     ));
+    let knowledge = write_knowledge(&home, &out, scope)?;
+    if knowledge.iter().any(|n| n == EXTERNALS) {
+        instructions.push_str(EXTERNALS_NOTE);
+    }
     let mut skills_md = format!("# ika スキルと書式\n\n## スキル一覧\n\n{list}");
     skills_md.push_str("\n---\n\n## 置き場所（references/kb-layout.md）\n\n");
     skills_md.push_str(frontmatter::body(&fs::read_to_string(
@@ -251,7 +259,7 @@ fn chatgpt(root: &Path, scope: &Scope) -> Result<()> {
     fs::write(out.join("skills.md"), skills_md)?;
 
     let mut written = vec!["instructions.md".to_string(), "skills.md".to_string()];
-    written.extend(write_knowledge(&home, &out, scope)?);
+    written.extend(knowledge);
 
     for name in written {
         println!("dist/chatgpt/{name}");
@@ -316,8 +324,22 @@ fn write_knowledge(home: &Path, out: &Path, scope: &Scope) -> Result<Vec<String>
         registry::save(out, "domains.csv", &selected)?;
     }
     written.push("domains.csv".to_string());
+
+    // 外部ナレッジの目録。ここでは ika を呼べないので、どこを見るかを一緒に渡す
+    let externals = crate::external::for_export(home, &scope.domains, scope.projects)?;
+    if !externals.is_empty() {
+        registry::save(out, EXTERNALS, &externals)?;
+        written.push(EXTERNALS.to_string());
+    }
     Ok(written)
 }
+
+/// 書き出しでの外部ナレッジの目録のファイル名
+const EXTERNALS: &str = "externals.csv";
+
+/// 目録を書き出したときに、指示へ足す1行
+const EXTERNALS_NOTE: &str = "- KB の外のナレッジの目録は `externals.csv`（場所・読むコネクタ・中身と見る場面）。知識ファイルで足りなければ、\
+     関係する行の場所をそのコネクタで引き、根拠に URL を添える。つながっていなければそう言い、外部には書き込まない\n";
 
 /// 前回の `write_knowledge` が書いたファイルを消す
 fn remove_knowledge(out: &Path) -> Result<()> {
@@ -326,7 +348,8 @@ fn remove_knowledge(out: &Path) -> Result<()> {
         let name = path.file_name().expect("entry").to_string_lossy();
         let ours = (name.starts_with("knowledge-") && name.ends_with(".md"))
             || name == "projects.csv"
-            || name == "domains.csv";
+            || name == "domains.csv"
+            || name == EXTERNALS;
         if ours && path.is_file() {
             fs::remove_file(&path)?;
         }

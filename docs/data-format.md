@@ -10,6 +10,7 @@
 |---|---|---|
 | `projects.csv` | プロダクト登録簿（正本） | `name`（英小文字・ハイフン）, `path`（ローカルリポジトリ）, `url`（公開URL、無ければ空）, `status`（`active` / `paused` / `archived`）, `summary` |
 | `domains.csv` | 領域登録簿（正本）。`kb/<name>/` と対応 | `name`（英小文字・ハイフン、`projects` は不可）, `summary` |
+| `externals.csv` | 外部ナレッジの目録。KB の外の Drive・SaaS・手元のフォルダ・Web の「どこに何があり、いつ見るか」。中身と資格情報は持たない。無ければ登録なし（`ika external add` が作る） | `name`（英小文字・ハイフン）, `kind`（`connector` / `folder` / `web`）, `location`（URL・絶対パス、`~` 可）, `connector`（`connector` のとき必須。クライアントでの表示名）, `projects`・`domains`（`;` 区切り。空はすべて）, `about`（何が入っていて、いつ見るか） |
 
 ## データセット（`datasets.sqlite3`）
 

@@ -40,7 +40,7 @@ pub fn domains(root: &Path) -> Result<Vec<Domain>> {
     load(root, DOMAINS)
 }
 
-fn load<T: DeserializeOwned>(root: &Path, file: &str) -> Result<Vec<T>> {
+pub fn load<T: DeserializeOwned>(root: &Path, file: &str) -> Result<Vec<T>> {
     let mut reader =
         csv::Reader::from_path(root.join(file)).with_context(|| format!("{file} を開けません"))?;
     reader

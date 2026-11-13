@@ -36,6 +36,9 @@ ika kb append <path>                # 標準入力を末尾に足す
 ika kb edit <path> --old "..." --new "..." [--all]   # --old は1か所に一致する必要がある
 ika kb mv <from> <to> [--fix-links]  # 移動・改名。移動先が存在すれば失敗。切れたリンクを表示し、--fix-links で書き換える
 ika kb rm <path>                    # ファイルのみ。登録済みプロダクトの README は不可。リンク元を表示する
+ika external add <name> --kind connector|folder|web --location <URL・パス> [--connector "Google Drive"] [-p <name>]... [-d <領域>]... --about "何が入っていて、いつ見るか"   # KB の外のナレッジ（Drive・SaaS・手元のフォルダ・Web）を目録 data/externals.csv に登録する。中身は取り込まない（読むのはエージェントがコネクタ・ファイル・Web で）。資格情報は持たない。書き込みは自動でコミットされる
+ika external list [-p <name>] [-d <領域>]   # 目録を種類ごとの読み方つきで一覧する。-p・-d はその値を含む行と、指定の無い（すべてに関係する）行を出す
+ika external rm <name>              # 目録から外す（外部の中身には触れない）
 ika data new <name> --summary "..." --col date:date --col 'kind:enum(sold|listed)' --col price:int --col 'url:string?' --key date,kind [--domain ...] [--project ...]   # データセット（表）を作る。型は string/int/float/date/bool/enum(a|b)、`?` は省略可、--key は重複判定
 ika data append <name> [--on-conflict error|skip|replace]   # 標準入力のヘッダ付き CSV を検証して追記（1行でも不正なら何も書かない）
 ika data ls                         # データセットの一覧
@@ -45,7 +48,7 @@ ika data export <name>              # CSV で標準出力へ
 ika data delete <name> --where "..."   # 行を消す（訂正は消して追記し直す）
 ika data rm <name>                  # データセットごと消す
 ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる。検索語は結果の抜粋と、そこから開いたページ（`?hl=`）で黄色くハイライトする
-ika check                       # KB・登録簿・データセット定義・図の記法の検証。14 日以内のノートでどこからもリンクされていないものは「注意」に出す（失敗にはしない）。リポジトリ内で実行するとプラグインも検証する
+ika check                       # KB・登録簿（外部ナレッジの目録を含む。無いフォルダは「注意」）・データセット定義・図の記法の検証。14 日以内のノートでどこからもリンクされていないものは「注意」に出す（失敗にはしない）。リポジトリ内で実行するとプラグインも検証する
 ika sync                        # docs/kb-format.md・kb-layout.md・diagrams.md・templates/ を、使うスキルにだけコピーする（配り先から外れたコピーは消す。リポジトリ内で実行）
 ika install [--bump patch|minor|major] [--dry-run]   # （リポジトリ内で実行）このリポジトリを手元のプラグイン置き場として Claude・Codex の設定に登録し、ika プラグインを入れる（入っていれば更新する。公開はしない）
 ika export claude [--with-kb] [--domain <領域>]... [--no-projects] [--with-sources]   # dist/claude/ika.zip（Upload plugin 用）。--with-kb で KB のスナップショット（knowledge-*.md・CSV・instructions.md）も出す。クラウドに上がるので範囲は --domain・--no-projects で絞る

@@ -120,6 +120,19 @@ ika check                                     # KB を検証
 
 ノートが溜まったら `ika kb orphans` で未整理のものを確認し、複数のノートから言えることを知見（insight）に書き直すのが基本の流れです。
 
+### KB の外のナレッジも見る（外部ナレッジの目録）
+
+会社の Google Drive・スプレッドシート、別の SaaS、手元のフォルダのように、KB に写しきれない・変わり続ける・権限の要るナレッジは、取り込まずに「どこに何があり、いつ見るか」だけを目録に登録できます。`search`・`brainstorm`・`cycle` の調査は KB の後に目録を見て、関係するものをその場でコネクタ（MCP）・ファイル・Web で読みます。ika は中身もパスワードも持たず、読むのはクライアントのコネクタです。
+
+```bash
+ika external add work-drive --kind connector --connector "Google Drive" \
+  --location https://drive.google.com/drive/folders/<id> -p <name> --about "営業資料と価格表。価格・顧客の問いで見る"
+ika external add notes --kind folder --location ~/Documents/notes --about "読書メモ"
+ika external list -p <name>    # 関係するものを、読み方つきで一覧
+```
+
+目録は `IKA_HOME/data/externals.csv` にあり、使う人ごと・KB ごとに違います。仕事と個人で見る先が違うなら、`IKA_HOME` を分けて切り替えます。`ika export claude --with-kb`・`ika export chatgpt` の書き出しにも入るので、claude.ai からもコネクタで引けます（手元のフォルダの行は入りません）。
+
 ### ブラウザで読む
 
 ```bash
@@ -173,6 +186,7 @@ ika export chatgpt --domain business                      # ビジネスの領�
 
 - `--domain` は複数指定できます
 - 書き出すたびに前回の `knowledge-*.md` と CSV は消えるので、範囲を絞り直しても古い内容は残りません
+- 外部ナレッジの目録（`externals.csv`）も入ります。会社の Drive の URL と説明が上がるので、`--domain`・`--no-projects` で絞れます（手元のフォルダの行は入りません）
 - `--with-kb` なしの `ika export claude` は、プラグインの zip だけを作ります（KB は含みません）
 - 書き出した時点のスナップショットなので、KB を更新したら書き出し直してください
 

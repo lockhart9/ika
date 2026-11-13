@@ -23,13 +23,14 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `kb/projects/<name>/README.md` | プロダクトの概要（ビジネスと技術の両面）。1プロダクト1ディレクトリ |
 | `kb/projects/<name>/specs/` | 要件書（`type: spec`。機能ごと。`cycle` スキルが作り、実装後に今の形へ直す） |
 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 取り込んだ外部の資料の全文（`type: source`。`ika import` が作り、取り込み直すと上書きされる。直接編集しない） |
-| `inbox/YYYY-MM-DD.md` | 受信箱。`ika capture` で判断なしに溜めた生のメモ（`## HH:MM` で区切って追記。フロントマターなし）。`kb/` の外なので検索・`ika check`・`export`・`serve` に出ない。整理してノートにしたら `ika inbox rm`。`ika inbox` だけで読み書きする |
+| `inbox/YYYY-MM-DD.md` | 受信箱。`ika capture` で判断なしに溜めた生のメモ（`## HH:MM` 区切り。フロントマターなし）。`kb/` の外なので検索・`check`・`export`・`serve` に出ない。`ika inbox` で読み、整理したら `ika inbox rm` |
 | `data/projects.csv` | プロダクトの登録簿。プロダクト一覧の正本 |
 | `data/domains.csv` | 領域の登録簿。`kb/` 直下のディレクトリ一覧の正本 |
-| `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない。Markdown からいつでも作り直せる |
-| `.cache/html/` | `ika export html` の出力（KB と同じ階層の単独の HTML）。git に入れない。Markdown からいつでも作り直せる |
-| `theme/style.css` | `ika export html` の見た目の上書き（任意。色・フォントの CSS 変数を `:root` で上書きする） |
-| `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。全データセットを1ファイルに持つ。人は直接読まず、`ika data` と `ika serve` で扱う |
+| `data/externals.csv` | KB の外のナレッジ（Drive・SaaS・手元のフォルダ・Web）の目録。中身は持たない |
+| `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない |
+| `.cache/html/` | `ika export html` の出力（KB と同じ階層）。git に入れない |
+| `theme/style.css` | `ika export html` の見た目の上書き（任意。`:root` の CSS 変数） |
+| `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。人は直接読まず、`ika data` と `ika serve` で扱う |
 
 <!-- repo-only -->
 
@@ -56,22 +57,23 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 ## 守ること
 
-- ナレッジの文章はテキスト（Markdown）で持ち、登録簿は CSV にする。バイナリやDBを正本にしない。例外は表形式データ（件数が増え、集計して使うもの）で、`data/datasets.sqlite3` に持つ。これは `ika data` 経由でだけ読み書きし、人が直接読まない
+- ナレッジの文章は Markdown、登録簿は CSV で持ち、バイナリやDBを正本にしない。例外は表形式データ（件数が増え、集計して使うもの）で、`data/datasets.sqlite3` に持ち、`ika data` 経由でだけ読み書きする
 - 文章で書く知見・判断と、表で溜める観測を分ける。数値や記録が行として増え続けるもの（価格の履歴・計測値など）は `ika data` のデータセットに入れ、そこから言えることをノートや insight に書く。データセットは本文で名前を引用する
 - Markdown は先頭にフロントマターを付ける（書式は `docs/kb-format.md`）。書いたら `ika check` で検証する
 - ビジネス・ドメイン知識と技術は領域（`kb/business/` と `kb/tech/`）を分けて置く。迷ったら「何の判断に使うか」で決め、もう一方からリンクする（`docs/kb-layout.md`）
-- 「プロダクト」はコードのあるサービスに限らず、事業・副業の検討も含む（その場合 `path` は空）。プロダクト名は `data/projects.csv` の `name` と一致させる。新しいプロダクトは `ika project add` で登録する（手で増やすなら CSV の行と `kb/projects/<name>/README.md` を両方作る）
+- 「プロダクト」はコードのあるサービスに限らず、事業・副業の検討も含む（その場合 `path` は空）。プロダクト名は `data/projects.csv` の `name` と一致させる。新しいプロダクトは `ika project add` で登録する
 - 事実と意見を分ける。出典がある情報は `source:` にURLを書き、本文でも引用元を示す（KB の中の話。製品のコード・ドキュメントでは一次情報の URL だけを書き、KB を出典にしない）
 - 日付は絶対日付（`2026-10-14`）で書く。「先週」「最近」は使わない
 - ユーザーの判断が未確定のものは「案」「未決定」と明記し、決定事項として書かない
 - 既存のノートがあれば新規作成より更新を優先する（特に `insights/` と `kb/projects/`）
 - 各サービスのリポジトリ（`data/projects.csv` の `path`）は読むだけにし、このリポジトリから書き換えない
 - 製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。ika を使う人と使わない人が同じリポジトリで開発するため。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・ブランチ名・PR に、ika・KB・`kb/` のパス・要件書・要件 ID を書かない。書き換え方と点検は `plugins/ika/skills/cycle/references/product-repo.md`
-- KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/datasets.sqlite3` も `sqlite3` コマンドなどで直接触らない（外部プロジェクトの作業中も、このリポジトリの中でも同じ）。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
+- KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/datasets.sqlite3` も `sqlite3` コマンドなどで直接触らない。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
 
 ## 外部のドキュメントを取り込むとき
 
-- `import` スキルで、製品リポジトリの仕様書・Google Drive・Notion・手元の docx・xlsx・pptx・pdf・html を `ika import` で取り込む。全文は `sources/` に写しとして置き、判断に使う要点は README・要件書・ノートに書き起こしてリンクする
+- `import` スキルで、仕様書・Drive・Notion・docx・pdf などを `ika import` で取り込む。全文は `sources/` に写しとして置き、判断に使う要点は README・要件書・ノートに書き起こしてリンクする
+- 写しきれない・変わり続ける・権限の要る場所（会社の Drive など）は取り込まず、`ika external add` で目録に登録する
 - 取り込んだ資料は直接編集しない（取り込み直すと上書きされる）。`ika export` は既定で含めない（`--with-sources`）
 
 ## 調査から実装まで回すとき
@@ -89,7 +91,8 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 1. `ika project list` / `ika project show <name> --readme` で対象プロダクトの概要と関連ノートを確認する
 2. 問いが技術かビジネスかで領域（`-d tech` / `-d business`）を絞り、`ika kb search` でキーワード・タグ（`-t`）・プロダクト（`-p`）を検索する。当たらなければもう一方の領域も探す
-3. 回答には根拠にしたファイルのパスを添える。KBに無いことは「KBに記録なし」と言う
+3. KB で足りなければ `ika external list` の外部をコネクタ等で引く（書き込まない）
+4. 回答には根拠のパス（外部は URL）を添える。KBに無いことは「KBに記録なし」と言う
 
 <!-- repo-only: ika export の指示から外す -->
 
@@ -120,7 +123,7 @@ Rust のモジュールは `mod.rs` を使わず `foo.rs`（子モジュール�
 全コマンドは [`docs/cli.md`](docs/cli.md)、詳しくは `ika <コマンド> --help`。KB の作業はスキルの手順に従う。
 
 - KB: `ika kb ls|cat|search|grep|fts|write|append|edit|mv|rm|orphans|stale|triage|review|index`、`ika new`（ノート・決定・要件書など）、`ika import`、`ika capture`・`ika inbox`
-- 登録簿・データ: `ika project list|show|add|set`、`ika domain list|add`、`ika data new|append|ls|show|sql|export|delete|rm`
+- 登録簿・データ: `ika project list|show|add|set`、`ika domain list|add`、`ika external add|list|rm`、`ika data new|append|ls|show|sql|export|delete|rm`
 - 検証・閲覧・書き出し: `ika check`、`ika serve`、`ika export claude|chatgpt|html`
 - セットアップ・開発: `cargo install --path cli`、`ika init`、`ika sync`、`ika install`
 <!-- /repo-only -->

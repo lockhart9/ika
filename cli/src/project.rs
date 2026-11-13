@@ -235,6 +235,20 @@ fn show(root: &Path, name: &str, with_readme: Readme, limit: Option<usize>) -> R
         );
     }
 
+    // KB の外にある、このプロダクトに関係するナレッジ（中身は ika が持たないので、名前だけ）
+    let externals: Vec<_> = crate::external::load(root)?
+        .into_iter()
+        .filter(|e| e.for_project(name))
+        .map(|e| e.name)
+        .collect();
+    if !externals.is_empty() {
+        println!(
+            "\n外部ナレッジ {} 件: {}（場所と読み方は ika external list -p {name}）",
+            externals.len(),
+            externals.join("・")
+        );
+    }
+
     if with_readme == Readme::None {
         return Ok(());
     }
