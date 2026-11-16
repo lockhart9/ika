@@ -63,6 +63,16 @@ pub enum Command {
         #[arg(long)]
         status: Option<String>,
     },
+    /// README の「現状」の古い行（`- YYYY-MM-DD` で始まる箇条書き）を、同じディレクトリの history.md に移す
+    Rotate {
+        name: String,
+        /// README に残す件数（日付の新しい順）
+        #[arg(long, default_value_t = readme::STATUS_KEEP)]
+        keep: usize,
+        /// 移す件数と字数を表示するだけで、書かない
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 pub fn run(root: &Path, command: Command) -> Result<()> {
@@ -109,6 +119,11 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
             summary,
             status,
         } => set(root, &name, path, url, summary, status),
+        Command::Rotate {
+            name,
+            keep,
+            dry_run,
+        } => rotate(root, &name, keep, dry_run),
     }
 }
 
@@ -338,6 +353,112 @@ fn set(
     }
     vcs::commit(root, &format!("project set {name}"));
     Ok(())
+}
+
+/// README の「現状」から、日付の新しい `keep` 件を残して古い行を history.md に移す
+fn rotate(root: &Path, name: &str, keep: usize, dry_run: bool) -> Result<()> {
+    if !registry::projects(root)?.iter().any(|p| p.name == name) {
+        bail!("未登録のプロダクトです: {name}（`ika project list` で確認してください）");
+    }
+    let readme = registry::readme_path(root, name);
+    let readme_rel = readme.strip_prefix(root).unwrap_or(&readme);
+    let text = fs::read_to_string(&readme)?;
+    let Some(span) = cat::section_span(&text, readme::STATUS) else {
+        println!(
+            "「{}」の節がありません: {}",
+            readme::STATUS,
+            readme_rel.display()
+        );
+        return Ok(());
+    };
+    let rotation = readme::rotate(&text[span.clone()], keep);
+    if rotation.moved.is_empty() {
+        println!(
+            "移す行はありません（「{}」の日付つきの行は {} 件。{keep} 件まで残します）",
+            readme::STATUS,
+            rotation.kept
+        );
+        return Ok(());
+    }
+    let history = readme.with_file_name(readme::HISTORY);
+    let history_rel = history.strip_prefix(root).unwrap_or(&history);
+    crate::kb::guard_symlink(root, readme_rel)?;
+    crate::kb::guard_symlink(root, history_rel)?;
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let before = match fs::read_to_string(&history) {
+        Ok(before) => dated_today(&before, &today),
+        Err(_) => format!(
+            "---\ntitle: {name} の過去の動き\ntype: note\ndate: {today}\nprojects: [{name}]\ntags: []\n---\n\nREADME の「{}」から移した過去の動き（新しい順）。`ika project rotate {name}` が足すので、手で並べ替えない。\n",
+            readme::STATUS
+        ),
+    };
+    let (after, added) = readme::merge_history(&before, &rotation.moved);
+    let chars: usize = rotation.moved.iter().map(|m| m.chars().count()).sum();
+    let summary = format!(
+        "{} 件・{chars} 字 → {}（README の「{}」に残す日付つきの行は {} 件）",
+        rotation.moved.len(),
+        history_rel.display(),
+        readme::STATUS,
+        rotation.kept
+    );
+    if dry_run {
+        println!("移す行: {summary}\n--dry-run のため書いていません");
+        return Ok(());
+    }
+    // 先に history.md へ書く。途中で止まっても行は失われず、やり直せば重複は足されない
+    crate::kb::atomic::overwrite(&history, &after)?;
+    let updated = format!(
+        "{}{}{}",
+        &text[..span.start],
+        rotation.section,
+        &text[span.end..]
+    );
+    crate::kb::atomic::overwrite(&readme, &updated)?;
+    vcs::commit(root, &format!("project rotate {name}"));
+    println!("移しました: {summary}");
+    if added < rotation.moved.len() {
+        println!(
+            "  {} 件はすでに {} にあったので足していません",
+            rotation.moved.len() - added,
+            readme::HISTORY
+        );
+    }
+    Ok(())
+}
+
+/// フロントマターの `date` を今日にする（history.md を足した日）
+fn dated_today(text: &str, today: &str) -> String {
+    let head = frontmatter::head(text);
+    let dated: String = head
+        .split_inclusive('\n')
+        .map(|line| match line.strip_prefix("date:") {
+            Some(_) => format!("date: {today}\n"),
+            None => line.to_string(),
+        })
+        .collect();
+    format!("{dated}{}", &text[head.len()..])
+}
+
+/// README の「現状」「課題・次の打ち手」が伸びているプロダクト（`ika check` の注意）。1 件 1 行
+pub fn readme_notices(root: &Path) -> Result<Vec<String>> {
+    let mut notices = Vec::new();
+    for project in registry::projects(root)? {
+        let Ok(text) = fs::read_to_string(registry::readme_path(root, &project.name)) else {
+            continue;
+        };
+        let section = |title: &str| cat::section_span(&text, title).map_or("", |span| &text[span]);
+        let growth = readme::growth(section(readme::STATUS), section(readme::BACKLOG));
+        let Some(notice) = growth.notice() else {
+            continue;
+        };
+        let fix = if growth.rotatable() {
+            format!(" → ika project rotate {}", project.name)
+        } else {
+            String::new()
+        };
+        notices.push(format!("{}  {notice}{fix}", project.name));
+    }
+    Ok(notices)
 }
 
 fn add(root: &Path, project: &Project) -> Result<()> {

@@ -10,6 +10,7 @@ ika project list                # 登録済みプロダクト
 ika project add <name> [--path <リポジトリのパス>] --summary "..."   # --path はコードのあるプロダクトだけ。事業・副業の検討なら省略
 ika project show <name> [--readme | --full] [-n 20]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧（1件1行。既定は20件まで。取り込んだ資料は件数だけ。-n 0 で資料も含めて全件）。--readme は README も出す（3000字を超える README は要点だけ: 「現状」は日付つきの行を新しい5件、「課題・次の打ち手」は先頭20件に絞り、1件160字まで・子の行は行数だけ。切った件数は節の中に出る。ほかの節は見出し・字数だけ。節の全文は ika kb cat --section）。--full は README を全文で出す
 ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]   # 登録済みの項目を書き換える
+ika project rotate <name> [--keep 5] [--dry-run]   # README の「現状」の日付つきの行（- YYYY-MM-DD で始まる箇条書き。子の行も一緒）を、日付の新しい5件だけ残して同じディレクトリの history.md へ移す（本文はそのまま・新しい順・重複は足さない。README の「現状」の末尾に history.md へのリンクを足す）。--dry-run は移す件数と字数を出すだけ
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
 ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須。作った直後に標準エラーへ、似た既存のナレッジ（上位3件。タイトルとタグの語から fts で探す）と、リンクを足す README の候補を出す（標準出力は作ったパスだけ。`ika kb write` の新規作成も同じ）
