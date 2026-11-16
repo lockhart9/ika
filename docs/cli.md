@@ -15,7 +15,7 @@ ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
 ika new note "タイトル" --domain tech --project <name> --tags <tag>,<tag> [--slug ...] [--stdin]  # --stdin: 標準入力を本文にする。日本語だけのタイトルは --slug（英字）が必須。作った直後に標準エラーへ、似た既存のナレッジ（上位3件。タイトルとタグの語から fts で探す）と、リンクを足す README の候補を出す（標準出力は作ったパスだけ。`ika kb write` の新規作成も同じ）
 ika new spec "タイトル" --project <name> --slug <英字> [--stdin]   # 要件書を kb/projects/<name>/specs/ に作る（--domain は付けない。status: draft で始まる）
-ika import <file>... --project <name> | --domain <領域> [--project ...] [--tags ...] [--slug ...] [--title ...] [--source <URL>]   # 外部のドキュメント（md・html・csv・docx・xlsx・xls・ods・pptx・pdf）を Markdown にして sources/ に全文で置く。変換は Rust だけで行う。同じ source で取り込み直すと、変わっていたときだけ上書きする
+ika import <file>... --project <name> | --domain <領域> [--project ...] [--tags ...] [--slug ...] [--title ...] [--source <URL>]   # 外部のドキュメント（md・html・csv・docx・xlsx・xls・ods・pptx・pdf）を Markdown にして sources/ に全文で置く。変換は Rust だけで行う（PDF だけ、Rust で読めない・文字が空のときに、PATH に `pdftotext`（poppler）があれば代わりに使い、ページごとに桁位置を残したコードブロックで置く。無ければ失敗の理由と案内を出す）。同じ source で取り込み直すと、変わっていたときだけ上書きする
 ika import - --project <name> --source <URL> --title "..." [--format md|html|csv]   # 標準入力から（Drive・Notion の MCP で取った本文など）
 ika import <file> --print       # KB に書かず、変換した Markdown を表示する
 ika import --list [-p <name>]   # 取り込み済みの資料と原本の一覧
