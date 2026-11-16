@@ -20,6 +20,7 @@ kb/
   tech/                    技術
     notes/YYYY/  insights/  decisions/
   projects/<name>/README.md  プロダクト概要（ビジネスと技術の両面をまとめる。領域には属さない）
+  projects/<name>/history.md README の「現状」の古い行（ika project rotate が移す）
   projects/<name>/specs/     要件書（機能ごと。cycle スキルが作り、実装したら今の形に直す）
   projects/<name>/sources/   取り込んだ外部の資料の全文（ika import が作る。直接編集しない）
   <領域>/sources/            プロダクトに属さない外部の資料の全文（市場レポートなど）

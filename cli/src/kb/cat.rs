@@ -221,6 +221,16 @@ pub(crate) fn digest(
     Some(out)
 }
 
+/// 一番上の階層の節 `title` の範囲（見出しの行から、次の同じ階層の見出しの手前まで。バイト位置）
+pub(crate) fn section_span(text: &str, title: &str) -> Option<std::ops::Range<usize>> {
+    let heads = headings(text);
+    let top = heads.iter().map(|h| h.level).min()?;
+    let head = heads.iter().find(|h| h.level == top && h.title == title)?;
+    let lines = split_lines(text);
+    let bytes = |count: usize| lines[..count].iter().map(|line| line.len()).sum::<usize>();
+    Some(bytes(head.line - 1)..bytes(head.end))
+}
+
 fn with_newline(mut text: String) -> String {
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
@@ -399,6 +409,17 @@ mod tests {
             format!("[{title}]{}", section.len())
         });
         assert!(marked.unwrap().contains("[現状]"));
+    }
+
+    #[test]
+    fn section_span_covers_the_section_and_its_subsections() {
+        let doc = "---\ntitle: T\n---\n\n説明\n\n## 現状\n\n- 公開済み\n\n### 補足\n\n細部\n\n## 関連\n\n- リンク\n";
+        let span = section_span(doc, "現状").unwrap();
+        assert_eq!(&doc[span], "## 現状\n\n- 公開済み\n\n### 補足\n\n細部\n\n");
+        let last = section_span(doc, "関連").unwrap();
+        assert_eq!(&doc[last], "## 関連\n\n- リンク\n");
+        assert_eq!(section_span(doc, "補足"), None, "小見出しは対象にしない");
+        assert_eq!(section_span(doc, "無い節"), None);
     }
 
     #[test]
