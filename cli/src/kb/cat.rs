@@ -185,9 +185,14 @@ fn outline(name: &str, text: &str) -> String {
     out
 }
 
-/// 長い文書の要点: 見出しの前の本文と、`keep` に挙げた節（`##` の階層）だけを全文で出し、
-/// 残りの節は見出しと字数だけを並べる。`keep` の節が1つも無ければ None（呼び出し側が全文を出す）
-pub(crate) fn digest(text: &str, keep: &[&str]) -> Option<String> {
+/// 長い文書の要点: 見出しの前の本文と、`keep` に挙げた節（`##` の階層）だけを出し、
+/// 残りの節は見出しと字数だけを並べる。`keep` の節が1つも無ければ None（呼び出し側が全文を出す）。
+/// 出す節は `section`（節の名前と、見出しを含む節の本文を受け取る）を通す
+pub(crate) fn digest(
+    text: &str,
+    keep: &[&str],
+    section: impl Fn(&str, &str) -> String,
+) -> Option<String> {
     let lines = split_lines(text);
     let heads = headings(text);
     let top = heads.iter().map(|h| h.level).min()?;
@@ -200,7 +205,7 @@ pub(crate) fn digest(text: &str, keep: &[&str]) -> Option<String> {
     let mut rest = Vec::new();
     for h in tops {
         if keep.contains(&h.title.as_str()) {
-            out.push_str(&lines[h.line - 1..h.end].concat());
+            out.push_str(&section(&h.title, &lines[h.line - 1..h.end].concat()));
         } else {
             rest.push(format!(
                 "{}（{}字）",
@@ -371,7 +376,8 @@ mod tests {
     #[test]
     fn digest_keeps_named_sections_and_lists_the_rest() {
         let doc = "---\ntitle: T\n---\n\n一行説明\n\n## 目的\n\n長い説明\n\n## 現状\n\n- 公開済み\n\n### 補足\n\n細部\n\n## 関連\n\n- リンク\n";
-        let out = digest(doc, &["現状", "課題"]).unwrap();
+        let whole = |_: &str, section: &str| section.to_string();
+        let out = digest(doc, &["現状", "課題"], whole).unwrap();
         assert!(out.starts_with("一行説明\n"), "{out}");
         assert!(
             out.contains("## 現状\n\n- 公開済み\n\n### 補足\n\n細部\n"),
@@ -386,8 +392,13 @@ mod tests {
             "{out}"
         );
         assert!(!out.contains("title:"), "フロントマターは出さない");
-        assert_eq!(digest(doc, &["無い節"]), None);
-        assert_eq!(digest("見出しなし\n", &["現状"]), None);
+        assert_eq!(digest(doc, &["無い節"], whole), None);
+        assert_eq!(digest("見出しなし\n", &["現状"], whole), None);
+        // 出す節は、渡した関数を通る
+        let marked = digest(doc, &["現状"], |title, section| {
+            format!("[{title}]{}", section.len())
+        });
+        assert!(marked.unwrap().contains("[現状]"));
     }
 
     #[test]

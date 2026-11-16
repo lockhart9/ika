@@ -4357,6 +4357,100 @@ fn project_show_readme_gives_the_digest_of_a_long_readme() {
     );
 }
 
+/// 「現状」に日付つきの行が `status` 件、「課題・次の打ち手」に `backlog` 件ある README
+fn grown_readme(
+    status: usize,
+    status_chars: usize,
+    backlog: usize,
+    backlog_chars: usize,
+) -> String {
+    let mut readme = String::from(
+        "---\ntitle: foo\ntype: project\ndate: 2026-11-17\nprojects: [foo]\ntags: []\n---\n\n一行説明\n\n## 現状\n\n公開済み。\n\n",
+    );
+    for i in 1..=status {
+        readme.push_str(&format!(
+            "- 2026-{:02}-{:02}: 動き{i:02}{}\n",
+            9 + (i - 1) / 28,
+            1 + (i - 1) % 28,
+            "あ".repeat(status_chars)
+        ));
+    }
+    readme.push_str("\nスコープ:\n\n- Web\n\n## 技術\n\n- Rust\n\n## 課題・次の打ち手\n\n");
+    for i in 1..=backlog {
+        readme.push_str(&format!("- 課題{i:02}{}\n", "い".repeat(backlog_chars)));
+    }
+    readme
+}
+
+#[test]
+fn project_show_readme_trims_the_status_and_backlog_of_a_long_readme() {
+    let f = Fixture::new("show-digest-trim");
+    let readme = grown_readme(8, 400, 25, 200);
+    f.write("kb/projects/foo/README.md", &readme);
+
+    let run = f.ika(&["project", "show", "foo", "--readme"]);
+    assert!(run.ok, "{}", run.err);
+    // 「現状」は日付の新しい 5 件、「課題・次の打ち手」は先頭 20 件
+    for shown in [
+        "動き04",
+        "動き08",
+        "課題01",
+        "課題20",
+        "公開済み。",
+        "スコープ:\n\n- Web",
+    ] {
+        assert!(run.out.contains(shown), "{shown}: {}", run.out);
+    }
+    for hidden in ["動き01", "動き03", "課題21", "課題25", "- Rust"] {
+        assert!(!run.out.contains(hidden), "{hidden}: {}", run.out);
+    }
+    // 1 件は 160 字まで
+    let longest = run.out.lines().map(|l| l.chars().count()).max().unwrap();
+    assert!(longest <= 161, "{longest} 字");
+    // 切った件数と全文の取り方
+    for note in [
+        "…ほか 3 件・5 件を短くしています（全文は ika kb cat kb/projects/foo/README.md --section \"現状\"）",
+        "…ほか 5 件・20 件を短くしています（全文は ika kb cat kb/projects/foo/README.md --section \"課題・次の打ち手\"）",
+    ] {
+        assert!(run.out.contains(note), "{note}: {}", run.out);
+    }
+
+    // 絞るのは要点だけ: --full と節の指定は全文
+    let full = f.ika(&["project", "show", "foo", "--full"]);
+    assert!(full.out.ends_with(&readme));
+    let section = f.ika(&[
+        "kb",
+        "cat",
+        "kb/projects/foo/README.md",
+        "--section",
+        "現状",
+    ]);
+    assert!(section.out.contains("動き01") && section.out.contains(&"あ".repeat(400)));
+
+    // 3000 字以下の README は全文
+    let short = grown_readme(8, 100, 25, 20);
+    assert!(short.chars().count() <= 3000);
+    f.write("kb/projects/foo/README.md", &short);
+    let run = f.ika(&["project", "show", "foo", "--readme"]);
+    assert!(run.out.ends_with(&short), "{}", run.out);
+}
+
+#[test]
+fn project_show_readme_stays_small_as_the_readme_grows() {
+    // 回帰防止: 「現状」と「課題・次の打ち手」が増え続けても、要点は増えない
+    let f = Fixture::new("show-digest-size");
+    let readme = grown_readme(40, 400, 60, 200);
+    f.write("kb/projects/foo/README.md", &readme);
+    let run = f.ika(&["project", "show", "foo", "--readme"]);
+    let shown = run.out.split_once("（要点。").expect("要点").1;
+    assert!(readme.chars().count() > 20_000);
+    assert!(
+        shown.chars().count() <= 6_000,
+        "{} 字",
+        shown.chars().count()
+    );
+}
+
 #[test]
 fn default_outputs_stay_small() {
     // 回帰防止: 一般的な語でも、既定の出力がトークンを食いすぎない

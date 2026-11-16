@@ -13,6 +13,8 @@ use crate::registry::{self, Project};
 use crate::templates;
 use crate::vcs;
 
+mod readme;
+
 #[derive(Subcommand)]
 pub enum Command {
     /// 登録済みのプロダクトを一覧する
@@ -37,7 +39,8 @@ pub enum Command {
     /// プロダクトの登録情報と、それに関連する決定・知見・ノートの一覧を表示する
     Show {
         name: String,
-        /// README も表示する。3000 字を超える README は要点（「現状」「課題・次の打ち手」の節と、ほかの節の見出し）だけ
+        /// README も表示する。3000 字を超える README は要点だけ（「現状」は日付の新しい 5 件、
+        /// 「課題・次の打ち手」は先頭 20 件を、1 件 160 字まで。ほかの節は見出しだけ）
         #[arg(long)]
         readme: bool,
         /// README を全文で表示する（--readme を兼ねる）
@@ -170,8 +173,8 @@ pub fn related(root: &Path, name: &str) -> Result<Vec<Related>> {
 const RELATED_LIMIT: usize = 20;
 /// これより長い README は、`--readme` では要点だけを表示する（字数）
 const README_FULL_LIMIT: usize = 3000;
-/// 要点として全文で出す README の節。次に何をするかの判断に要るもの
-const README_KEEP: &[&str] = &["現状", "課題・次の打ち手"];
+/// 要点として出す README の節。次に何をするかの判断に要るもの
+const README_KEEP: &[&str] = &[readme::STATUS, readme::BACKLOG];
 
 /// `project show` で README をどこまで出すか
 #[derive(Clone, Copy, PartialEq)]
@@ -255,7 +258,12 @@ fn show(root: &Path, name: &str, with_readme: Readme, limit: Option<usize>) -> R
     let text = fs::read_to_string(&readme)?;
     let chars = text.chars().count();
     let digest = (with_readme == Readme::Digest && chars > README_FULL_LIMIT)
-        .then(|| cat::digest(&text, README_KEEP))
+        .then(|| {
+            let path = readme_rel.display().to_string();
+            cat::digest(&text, README_KEEP, |title, section| {
+                readme::digest_section(title, section, &path)
+            })
+        })
         .flatten();
     match digest {
         Some(digest) => {
