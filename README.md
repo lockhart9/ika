@@ -50,7 +50,7 @@ AI は `kb/` や `data/` のファイルを直接いじらず、必ず `ika` コ
 | 決定 | `kb/<領域>/decisions/` | 背景・選択肢・決定・理由の記録 |
 | プロダクト | `kb/projects/<name>/README.md` | サービスや副業ごとの概要 |
 | 要件書 | `kb/projects/<name>/specs/` | 機能ごとの目的・範囲・受け入れ条件。実装したら今の形に直す |
-| 取り込んだ資料 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 外部のドキュメントの全文。`ika import` が Rust だけで変換し、取り込み直せる |
+| 取り込んだ資料 | `kb/projects/<name>/sources/`・`kb/<領域>/sources/` | 外部のドキュメントの全文。`ika import` が Rust で変換し（PDF は読めないとき `pdftotext` があれば代わりに使う）、取り込み直せる |
 | 表データ | `data/datasets.sqlite3` | 件数が増えていく数値や記録。`ika data` で扱う |
 
 領域は最初から `business`（ビジネス・ドメイン知識）と `tech`（技術）に分けてあります。書式の詳細は [`docs/kb-format.md`](docs/kb-format.md)（書き方）・[`docs/kb-layout.md`](docs/kb-layout.md)（置き場所）と [`docs/data-format.md`](docs/data-format.md) です。
