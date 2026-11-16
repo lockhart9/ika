@@ -89,8 +89,21 @@ pub fn run(root: &Path, repo: Option<&Path>) -> Result<ExitCode> {
     }
 
     let notices = unlinked_recent_notes(root, &files)?;
+    let readme_notices = crate::project::readme_notices(root)?;
     let print_all_notices = || {
         print_notices(&notices);
+        if !readme_notices.is_empty() {
+            println!(
+                "\n注意（失敗にはしません）: 「現状」「課題・次の打ち手」が伸びている README {} 件",
+                readme_notices.len()
+            );
+            for notice in &readme_notices {
+                println!("  {notice}");
+            }
+            println!(
+                "  「現状」の 1 件は日付・一文・要件書へのリンクにし、古い行は ika project rotate <name> で history.md へ移してください。済んだ課題は消してください"
+            );
+        }
         if !external_notices.is_empty() {
             println!("\n注意（失敗にはしません）: 外部ナレッジの目録");
             for notice in &external_notices {

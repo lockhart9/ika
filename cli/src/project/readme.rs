@@ -30,6 +30,22 @@ pub(crate) struct Item<'a> {
     pub children: Vec<&'a str>,
 }
 
+impl Item<'_> {
+    /// 子の行を含む全文
+    fn text(&self) -> String {
+        format!("{}{}", self.head, self.children.concat())
+    }
+}
+
+impl Block<'_> {
+    fn text(&self) -> String {
+        match self {
+            Block::Item(item) => item.text(),
+            Block::Line(line) => line.to_string(),
+        }
+    }
+}
+
 /// 節の本文を、一番上の階層の箇条書きとそれ以外の行に分ける。つなげると元の本文に戻る
 pub(crate) fn blocks(section: &str) -> Vec<Block<'_>> {
     let mut out: Vec<Block> = Vec::new();
@@ -127,8 +143,7 @@ pub(crate) fn digest_section(title: &str, section: &str, path: &str) -> String {
             Block::Item(item) => item,
         };
         if title == STATUS && item.date.is_none() {
-            out.push_str(item.head);
-            out.extend(item.children.iter().copied());
+            out.push_str(&item.text());
             continue;
         }
         listed += 1;
@@ -156,6 +171,183 @@ pub(crate) fn digest_section(title: &str, section: &str, path: &str) -> String {
         &format!("…{note}（全文は ika kb cat {path} --section \"{title}\"）\n"),
     );
     out
+}
+
+/// 過去の動きを置くファイル（README と同じディレクトリ）
+pub(crate) const HISTORY: &str = "history.md";
+
+/// 「現状」の古い行を移した結果
+pub(crate) struct Rotation {
+    /// 古い行を除き、`history.md` へのリンクを足した「現状」の節
+    pub section: String,
+    /// 移す行（子の行つき）。日付の新しい順
+    pub moved: Vec<String>,
+    /// 残した日付つきの行の件数
+    pub kept: usize,
+}
+
+/// 「現状」の節（見出しを含む）から、日付の新しい `keep` 件を残して古い日付つきの行を抜く。
+/// 行の本文は変えない。移す行が無ければ `moved` は空で、節もそのまま
+pub(crate) fn rotate(section: &str, keep: usize) -> Rotation {
+    let blocks = blocks(section);
+    let recent = newest(&blocks, keep);
+    let mut out = String::new();
+    let mut moved = Vec::new();
+    // 抜いた行の前後の空行が重ならないようにする
+    let mut gap = false;
+    for (i, block) in blocks.iter().enumerate() {
+        match block {
+            Block::Line(line) => {
+                if !(gap && line.trim().is_empty() && out.ends_with("\n\n")) {
+                    out.push_str(line);
+                }
+                gap &= line.trim().is_empty();
+            }
+            Block::Item(item) if item.date.is_some() && !recent.contains(&i) => {
+                // 節の最後の行で改行が無くても、移した先で次の行とつながらないようにする
+                let mut text = item.text();
+                if !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                moved.push((item.date.unwrap_or_default(), text));
+                gap = true;
+            }
+            Block::Item(item) => {
+                out.push_str(&item.text());
+                gap = false;
+            }
+        }
+    }
+    let kept = recent.len();
+    if moved.is_empty() {
+        return Rotation {
+            section: section.to_string(),
+            moved: Vec::new(),
+            kept,
+        };
+    }
+    // 古い順に並んだ節は、同じ日付の中も下が新しい。新しい順にそろえる
+    let ascending = moved.first().map(|m| m.0) < moved.last().map(|m| m.0);
+    if ascending {
+        moved.reverse();
+    }
+    moved.sort_by(|a, b| b.0.cmp(a.0));
+    let link = format!("]({HISTORY})");
+    if !out.contains(&link) {
+        let spaced = out.ends_with("\n\n");
+        out.truncate(out.trim_end_matches('\n').len());
+        out.push_str(&format!("\n\n過去の動き: [{HISTORY}]({HISTORY})\n"));
+        if spaced {
+            out.push('\n');
+        }
+    }
+    Rotation {
+        section: out,
+        moved: moved.into_iter().map(|(_, text)| text).collect(),
+        kept,
+    }
+}
+
+/// `history.md` の本文に `moved` を足す。日付の新しい順に並べ、すでにある行は足さない。
+/// 日付つきの行でないもの（冒頭の説明など）は残す。足した件数も返す
+pub(crate) fn merge_history(history: &str, moved: &[String]) -> (String, usize) {
+    let blocks = blocks(history);
+    let dated = |block: &Block| matches!(block, Block::Item(item) if item.date.is_some());
+    let existing: Vec<String> = blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Item(item) if item.date.is_some() => Some(item.text()),
+            _ => None,
+        })
+        .collect();
+    let fresh: Vec<&String> = moved.iter().filter(|m| !existing.contains(m)).collect();
+    // 同じ日付なら、後から移した行のほうが新しい
+    let mut items: Vec<&str> = fresh.iter().map(|m| m.as_str()).collect();
+    items.extend(existing.iter().map(String::as_str));
+    let date = |text: &str| date_of(&text[2..]).unwrap_or_default().to_string();
+    items.sort_by_key(|text| std::cmp::Reverse(date(text)));
+
+    let first = blocks.iter().position(dated).unwrap_or(blocks.len());
+    let mut out = String::new();
+    for block in &blocks[..first] {
+        out.push_str(&block.text());
+    }
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if first == blocks.len() && !out.is_empty() && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
+    for item in items {
+        out.push_str(item);
+        if !item.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    for block in blocks[first..].iter().filter(|block| !dated(block)) {
+        out.push_str(&block.text());
+    }
+    (out, fresh.len())
+}
+
+/// `ika check` が知らせる「現状」の件数（これを超えたら）
+const WARN_ITEMS: usize = 10;
+/// `ika check` が知らせる「現状」の1件の字数（これを超えたら）
+const WARN_CHARS: usize = 300;
+
+/// README の「現状」「課題・次の打ち手」の伸び。`ika check` の注意に使う
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Growth {
+    /// 「現状」の日付つきの行の件数
+    pub dated: usize,
+    /// そのうち `WARN_CHARS` 字を超える行の件数
+    pub long: usize,
+    /// 「課題・次の打ち手」の、打ち消し線のある行の数
+    pub struck: usize,
+}
+
+impl Growth {
+    /// 知らせることがあれば、その中身（件数の並び）
+    pub(crate) fn notice(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.dated > WARN_ITEMS {
+            parts.push(format!(
+                "「現状」の日付つきの行 {} 件（{WARN_ITEMS} 件まで）",
+                self.dated
+            ));
+        }
+        if self.long > 0 {
+            parts.push(format!(
+                "{WARN_CHARS} 字を超える「現状」の行 {} 件",
+                self.long
+            ));
+        }
+        if self.struck > 0 {
+            parts.push(format!("打ち消し線の残る課題 {} 行", self.struck));
+        }
+        (!parts.is_empty()).then(|| parts.join("・"))
+    }
+
+    /// `ika project rotate` で古い行を移せるか
+    pub(crate) fn rotatable(&self) -> bool {
+        self.dated > STATUS_KEEP && (self.dated > WARN_ITEMS || self.long > 0)
+    }
+}
+
+/// 「現状」と「課題・次の打ち手」の節（どちらも無ければ空文字）から伸びを数える
+pub(crate) fn growth(status: &str, backlog: &str) -> Growth {
+    let mut growth = Growth::default();
+    for block in blocks(status) {
+        if let Block::Item(item) = block
+            && item.date.is_some()
+        {
+            growth.dated += 1;
+            let chars = item.text().trim_end().chars().count();
+            growth.long += usize::from(chars > WARN_CHARS);
+        }
+    }
+    growth.struck = backlog.lines().filter(|line| line.contains("~~")).count();
+    growth
 }
 
 /// 箇条書き1件を1行にする。長ければ `ITEM_CHARS` 字で切り、子の行は行数だけ添える。
@@ -325,6 +517,136 @@ mod tests {
             out.contains(&format!("- 日付なし {long}\n  - 子\n")),
             "日付のない箇条書きはそのまま: {out}"
         );
+    }
+
+    #[test]
+    fn rotate_moves_old_dated_items_and_keeps_the_rest() {
+        let section = "## 現状\n\n公開済み。\n\n- 2026-10-01: 一\n  - 子\n- 2026-10-02: 二\n- 2026-11-01: 三\n- 2026-11-02: 四\n- 日付なし\n\nスコープ:\n\n- Web\n\n";
+        let rotation = rotate(section, 2);
+        assert_eq!(rotation.kept, 2);
+        // 移す行は新しい順。子の行も一緒で、本文は変えない
+        assert_eq!(
+            rotation.moved,
+            ["- 2026-10-02: 二\n", "- 2026-10-01: 一\n  - 子\n"]
+        );
+        assert_eq!(
+            rotation.section,
+            "## 現状\n\n公開済み。\n\n- 2026-11-01: 三\n- 2026-11-02: 四\n- 日付なし\n\nスコープ:\n\n- Web\n\n過去の動き: [history.md](history.md)\n\n"
+        );
+        // もう一度かけても変わらない（リンクも増えない）
+        let again = rotate(&rotation.section, 2);
+        assert!(again.moved.is_empty());
+        assert_eq!(again.section, rotation.section);
+        // リンクがすでにあれば足さない
+        let next = rotation
+            .section
+            .replace("- 日付なし\n", "- 2026-11-03: 五\n");
+        let rotated = rotate(&next, 2);
+        assert_eq!(rotated.moved, ["- 2026-11-01: 三\n"]);
+        assert_eq!(rotated.section.matches("](history.md)").count(), 1);
+    }
+
+    #[test]
+    fn rotate_picks_the_same_items_in_any_order() {
+        let dates = ["2026-10-01", "2026-11-03", "2026-10-02", "2026-11-01"];
+        let section = |dates: &[&str]| {
+            let lines: String = dates.iter().map(|d| format!("- {d}: x\n")).collect();
+            format!("## 現状\n\n{lines}")
+        };
+        let mut sorted = dates;
+        sorted.sort();
+        let mut reversed = sorted;
+        reversed.reverse();
+        for order in [dates, sorted, reversed] {
+            let rotation = rotate(&section(&order), 2);
+            assert_eq!(
+                rotation.moved,
+                ["- 2026-10-02: x\n", "- 2026-10-01: x\n"],
+                "{order:?}"
+            );
+            assert!(
+                rotation.section.contains("2026-11-03") && rotation.section.contains("2026-11-01")
+            );
+        }
+        // 最後の行に改行が無くても、節が README の末尾でも壊れない
+        let rotation = rotate("## 現状\n\n- 2026-11-02: 新\n- 2026-11-01: 旧", 1);
+        assert_eq!(rotation.moved, ["- 2026-11-01: 旧\n"]);
+        assert_eq!(
+            rotation.section,
+            "## 現状\n\n- 2026-11-02: 新\n\n過去の動き: [history.md](history.md)\n"
+        );
+    }
+
+    #[test]
+    fn history_is_merged_newest_first_without_duplicates() {
+        let head = "---\ntitle: foo の過去の動き\n---\n\n説明。\n";
+        let (first, added) = merge_history(
+            head,
+            &[
+                "- 2026-10-02: 二\n".into(),
+                "- 2026-10-01: 一\n  - 子\n".into(),
+            ],
+        );
+        assert_eq!(added, 2);
+        assert_eq!(
+            first,
+            format!("{head}\n- 2026-10-02: 二\n- 2026-10-01: 一\n  - 子\n")
+        );
+        // 後から移した行は上に入る。すでにある行は足さず、日付のない行は残す
+        let noted = format!("{first}\n手で足したメモ\n");
+        let (second, added) = merge_history(
+            &noted,
+            &[
+                "- 2026-11-01: 三".into(),
+                "- 2026-10-02: 二\n".into(),
+                "- 2026-09-30: 零\n".into(),
+            ],
+        );
+        assert_eq!(added, 2);
+        assert_eq!(
+            second,
+            format!(
+                "{head}\n- 2026-11-01: 三\n- 2026-10-02: 二\n- 2026-10-01: 一\n  - 子\n- 2026-09-30: 零\n\n手で足したメモ\n"
+            )
+        );
+    }
+
+    #[test]
+    fn growth_counts_long_status_and_struck_backlog() {
+        let line = |date: &str, chars: usize| format!("- {date}: {}\n", "あ".repeat(chars));
+        let mut status = String::from("## 現状\n\n公開済み。\n\n- 日付なし\n");
+        for day in 1..=10 {
+            status.push_str(&line(&format!("2026-11-{day:02}"), 286));
+        }
+        let quiet = growth(&status, "## 課題・次の打ち手\n\n- 次\n");
+        assert_eq!(quiet.dated, 10);
+        assert_eq!(quiet.notice(), None, "10 件・300 字までは知らせない");
+
+        status.push_str(&line("2026-11-11", 287));
+        let grown = growth(
+            &status,
+            "## 課題・次の打ち手\n\n- ~~済み~~: 残り\n- 次\n  - ~~子~~\n",
+        );
+        assert_eq!(
+            grown,
+            Growth {
+                dated: 11,
+                long: 1,
+                struck: 2
+            }
+        );
+        let notice = grown.notice().unwrap();
+        for part in [
+            "11 件（10 件まで）",
+            "300 字を超える「現状」の行 1 件",
+            "課題 2 行",
+        ] {
+            assert!(notice.contains(part), "{notice}");
+        }
+        assert!(grown.rotatable());
+        // 件数が少なければ、長い行があっても移すものが無い
+        let few = growth(&format!("## 現状\n\n{}", line("2026-11-01", 400)), "");
+        assert!(few.notice().is_some() && !few.rotatable());
     }
 
     #[test]

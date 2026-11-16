@@ -4451,6 +4451,240 @@ fn project_show_readme_stays_small_as_the_readme_grows() {
     );
 }
 
+/// 「現状」に日付つきの行が 8 件（古い順）ある README。古い行の1つに子の行とリンクがある
+const ROTATE_README: &str = "---\ntitle: foo\ntype: project\ndate: 2026-11-10\nprojects: [foo]\ntags: []\n---\n\n一行説明\n\n## 現状\n\n公開済み。\n\n- 2026-10-01: 動き1\n  - 詳しくは [メモ](../../tech/notes/2026/2026-10-14-a.md)\n- 2026-10-02: 動き2\n- 2026-10-03: 動き3\n- 2026-11-01: 動き4\n- 2026-11-02: 動き5\n- 2026-11-03: 動き6\n- 2026-11-04: 動き7\n- 2026-11-05: 動き8\n\nスコープ:\n\n- Web\n\n## 課題・次の打ち手\n\n- 次\n";
+
+/// 書く前の状態を最初のコミットにして、コミットの数を数える関数を返す
+fn committed(f: &Fixture) -> impl Fn() -> String + '_ {
+    f.git(&["init", "-q"]);
+    f.git(&["add", "-A"]);
+    f.git(&[
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.test",
+        "commit",
+        "-q",
+        "-m",
+        "first",
+    ]);
+    || f.git(&["rev-list", "--count", "HEAD"]).trim().to_string()
+}
+
+#[test]
+fn project_rotate_moves_old_status_lines_to_history_in_one_commit() {
+    let f = Fixture::new("rotate");
+    f.write("kb/tech/notes/2026/2026-10-14-a.md", NOTE);
+    f.write("kb/projects/foo/README.md", ROTATE_README);
+    let commits = committed(&f);
+    let before = commits();
+
+    let run = f.ika(&["project", "rotate", "foo"]);
+    assert!(run.ok, "{}", run.err);
+    assert!(
+        run.out.contains("移しました: 3 件") && run.out.contains("kb/projects/foo/history.md"),
+        "{}",
+        run.out
+    );
+
+    // README には新しい 5 件が元の並びで残り、日付のない行もそのまま
+    let readme = f.read("kb/projects/foo/README.md");
+    assert!(
+        readme.contains(
+            "## 現状\n\n公開済み。\n\n- 2026-11-01: 動き4\n- 2026-11-02: 動き5\n- 2026-11-03: 動き6\n- 2026-11-04: 動き7\n- 2026-11-05: 動き8\n\nスコープ:\n\n- Web\n\n過去の動き: [history.md](history.md)\n\n## 課題・次の打ち手\n\n- 次\n"
+        ),
+        "{readme}"
+    );
+    assert!(
+        readme.contains("date: 2026-11-10"),
+        "README の日付は変えない"
+    );
+    // history.md は新しい順で、本文と子の行はそのまま
+    let history = f.read("kb/projects/foo/history.md");
+    assert!(
+        history.ends_with(
+            "\n- 2026-10-03: 動き3\n- 2026-10-02: 動き2\n- 2026-10-01: 動き1\n  - 詳しくは [メモ](../../tech/notes/2026/2026-10-14-a.md)\n"
+        ),
+        "{history}"
+    );
+    assert!(
+        history.starts_with(&format!(
+            "---\ntitle: foo の過去の動き\ntype: note\ndate: {}\nprojects: [foo]\ntags: []\n---\n",
+            today()
+        )),
+        "{history}"
+    );
+
+    // README と history.md が1つのコミットに入る
+    assert_eq!(commits(), (before.parse::<u32>().unwrap() + 1).to_string());
+    let changed = f.git(&["show", "--name-only", "--format=%s", "HEAD"]);
+    for needle in [
+        "project rotate foo",
+        "kb/projects/foo/README.md",
+        "kb/projects/foo/history.md",
+    ] {
+        assert!(changed.contains(needle), "{changed}");
+    }
+
+    // リンク切れなしで検証を通り、整理・確かめ直しの対象にならず、検索では引ける
+    let check = f.ika(&["check"]);
+    assert!(check.ok, "{}", check.out);
+    for command in ["orphans", "stale", "triage"] {
+        let run = f.ika(&["kb", command]);
+        assert!(
+            run.ok && !run.out.contains("history.md"),
+            "{command}: {}",
+            run.out
+        );
+    }
+    let found = f.ika(&["kb", "search", "動き2", "-l"]);
+    assert!(
+        found.out.contains("kb/projects/foo/history.md"),
+        "{}",
+        found.out
+    );
+
+    // もう一度実行しても何も書かない
+    let after = commits();
+    let again = f.ika(&["project", "rotate", "foo"]);
+    assert!(
+        again.ok && again.out.contains("移す行はありません"),
+        "{}",
+        again.out
+    );
+    assert_eq!(f.read("kb/projects/foo/README.md"), readme);
+    assert_eq!(f.read("kb/projects/foo/history.md"), history);
+    assert_eq!(commits(), after);
+}
+
+#[test]
+fn project_rotate_takes_keep_and_dry_run() {
+    let f = Fixture::new("rotate-keep");
+    f.write("kb/projects/foo/README.md", ROTATE_README);
+    let commits = committed(&f);
+    let before = commits();
+
+    let dry = f.ika(&["project", "rotate", "foo", "--keep", "3", "--dry-run"]);
+    assert!(dry.ok, "{}", dry.err);
+    assert!(
+        dry.out.contains("移す行: 5 件") && dry.out.contains("--dry-run のため書いていません"),
+        "{}",
+        dry.out
+    );
+    assert_eq!(f.read("kb/projects/foo/README.md"), ROTATE_README);
+    assert!(!f.root().join("kb/projects/foo/history.md").exists());
+    assert_eq!(commits(), before);
+
+    let run = f.ika(&["project", "rotate", "foo", "--keep", "3"]);
+    assert!(run.ok, "{}", run.err);
+    let readme = f.read("kb/projects/foo/README.md");
+    assert_eq!(readme.matches("- 2026-").count(), 3, "{readme}");
+    assert!(readme.contains("動き6") && readme.contains("動き8") && !readme.contains("動き5"));
+}
+
+#[test]
+fn project_rotate_adds_to_an_existing_history_without_duplicates() {
+    let f = Fixture::new("rotate-merge");
+    // 新しい順に並んだ README と、途中まで移してある history.md
+    let readme = "---\ntitle: foo\ntype: project\ndate: 2026-11-10\nprojects: [foo]\ntags: []\n---\n\n## 現状\n\n- 2026-11-03: 動き3\n- 2026-11-02: 動き2\n- 2026-11-01: 動き1\n\n過去の動き: [history.md](history.md)\n";
+    let history = "---\ntitle: foo の過去の動き\ntype: note\ndate: 2026-11-01\nprojects: [foo]\ntags: []\n---\n\n説明。\n\n- 2026-11-01: 動き1\n- 2026-10-01: 動き0\n";
+    f.write("kb/projects/foo/README.md", readme);
+    f.write("kb/projects/foo/history.md", history);
+
+    let run = f.ika(&["project", "rotate", "foo", "--keep", "1"]);
+    assert!(run.ok, "{}", run.err);
+    assert!(
+        run.out.contains("1 件はすでに history.md にあった"),
+        "{}",
+        run.out
+    );
+    let after = f.read("kb/projects/foo/history.md");
+    assert!(
+        after
+            .ends_with("説明。\n\n- 2026-11-02: 動き2\n- 2026-11-01: 動き1\n- 2026-10-01: 動き0\n"),
+        "{after}"
+    );
+    assert!(after.contains(&format!("date: {}\n", today())), "{after}");
+    let readme = f.read("kb/projects/foo/README.md");
+    assert!(readme.contains("- 2026-11-03: 動き3\n\n過去の動き: [history.md](history.md)\n"));
+    assert_eq!(readme.matches("](history.md)").count(), 1, "{readme}");
+    assert!(f.ika(&["check"]).ok);
+}
+
+#[test]
+fn project_rotate_refuses_unknown_projects_and_readmes_without_the_section() {
+    let f = Fixture::new("rotate-none");
+    let unknown = f.ika(&["project", "rotate", "nope"]);
+    assert!(!unknown.ok && unknown.err.contains("未登録のプロダクトです: nope"));
+
+    // Fixture の README には「現状」の節が無い
+    let before = f.read("kb/projects/foo/README.md");
+    let run = f.ika(&["project", "rotate", "foo"]);
+    assert!(
+        run.ok && run.out.contains("「現状」の節がありません"),
+        "{}",
+        run.out
+    );
+    assert_eq!(f.read("kb/projects/foo/README.md"), before);
+    assert!(!f.root().join("kb/projects/foo/history.md").exists());
+}
+
+#[test]
+fn check_notes_readmes_whose_status_keeps_growing() {
+    let f = Fixture::new("check-growth");
+    let readme = |status: &str, backlog: &str| {
+        format!(
+            "---\ntitle: foo\ntype: project\ndate: 2026-11-10\nprojects: [foo]\ntags: []\n---\n\n## 現状\n\n{status}\n## 課題・次の打ち手\n\n{backlog}"
+        )
+    };
+    let lines = |count: usize, chars: usize| -> String {
+        (1..=count)
+            .map(|i| format!("- 2026-10-{i:02}: {}\n", "あ".repeat(chars)))
+            .collect()
+    };
+    let heading = "「現状」「課題・次の打ち手」が伸びている README";
+
+    // 10 件・300 字までなら何も出ない
+    f.write(
+        "kb/projects/foo/README.md",
+        &readme(&lines(10, 286), "- 次\n"),
+    );
+    let quiet = f.ika(&["check"]);
+    assert!(quiet.ok && !quiet.out.contains(heading), "{}", quiet.out);
+
+    // 11 件: 件数と直し方を 1 行で出す。失敗にはしない
+    f.write(
+        "kb/projects/foo/README.md",
+        &readme(&lines(11, 10), "- 次\n"),
+    );
+    let many = f.ika(&["check"]);
+    assert!(many.ok, "{}", many.out);
+    assert!(
+        many.out
+            .contains(&format!("注意（失敗にはしません）: {heading} 1 件"))
+            && many.out.contains(
+                "  foo  「現状」の日付つきの行 11 件（10 件まで） → ika project rotate foo\n"
+            ),
+        "{}",
+        many.out
+    );
+
+    // 301 字の行と、打ち消し線の残る課題
+    f.write(
+        "kb/projects/foo/README.md",
+        &readme(&lines(1, 287), "- ~~済み~~: 残り\n- 次\n"),
+    );
+    let long = f.ika(&["check"]);
+    assert!(long.ok, "{}", long.out);
+    assert!(
+        long.out
+            .contains("  foo  300 字を超える「現状」の行 1 件・打ち消し線の残る課題 1 行\n")
+            && long.out.contains("ika project rotate <name>"),
+        "{}",
+        long.out
+    );
+}
+
 #[test]
 fn default_outputs_stay_small() {
     // 回帰防止: 一般的な語でも、既定の出力がトークンを食いすぎない

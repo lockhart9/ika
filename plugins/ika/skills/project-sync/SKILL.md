@@ -20,9 +20,9 @@ KB は環境変数 `IKA_HOME` のディレクトリにある（未設定なら�
    - `package.json` / `Cargo.toml` やデプロイ設定などで技術構成と公開ドメイン
 3. リポジトリに仕様書・設計書（`docs/` の Markdown など）があれば、`import` スキルで取り込む（取り込み済みなら同じパスで取り込み直す。変わっていたときだけ上書きされる）
 4. `kb/projects/<name>/README.md` を更新する。対象リポジトリで作業中でも `ika kb cat kb/projects/<name>/README.md --full` で読み、`ika kb edit`（部分置換）か `ika kb write --overwrite`（全文）で書く。KB のファイルを直接 Write/Edit しない
-   - 「現状」に直近の動きを日付付きで1〜3行
+   - 「現状」の冒頭（フェーズ・今の状態）を今の形に書き直し、直近の動きを `- YYYY-MM-DD: 一文` で1〜3行足す（1行 120 字まで。詳しくは要件書かリポジトリに任せる）。足したら `ika project rotate <name>` で古い行を `history.md` へ移す
    - 「技術」の変化（メジャーバージョン、構成変更）
-   - 「課題・次の打ち手」はリポジトリの TODO・docs から拾い、推測なら「推測」と書く。`cycle` スキルが次のテーマに使うので、1行1件で何をなぜやるかが分かるように書く
+   - 「課題・次の打ち手」はリポジトリの TODO・docs から拾い、推測なら「推測」と書く。`cycle` スキルが次のテーマに使うので、1行1件で何をなぜやるかが分かるように書く。済んだ項目は打ち消し線で残さず消す
    - `ika kb search --type spec --status approved -p <name> -l` で承認済みの要件書を確かめ、実装済みなのに `approved` のままなら `done` にして「実装の記録」を足す
    - フロントマターの `date` を今日にする
 5. URL や一行説明が変わっていたら `ika project set <name> --url ... --summary ...` で `data/projects.csv` を直す（CSV を直接編集しない）
