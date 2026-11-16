@@ -12,7 +12,7 @@ KB にアクセスできない環境では、プロジェクトに上げられ�
 
 ## 手順
 
-1. 対象プロダクトが話題にあれば `ika project list` で `name` を確かめ、`ika project show <name> --readme` で概要（README）と関連する決定・知見・ノートの一覧を一度に見る。長い README は「現状」「課題・次の打ち手」だけが出るので、ほかの節は `ika kb cat <README> --section "技術"` で読む（全文は `--full`）。取り込んだ資料は件数だけ出る
+1. 対象プロダクトが話題にあれば `ika project list` で `name` を確かめ、`ika project show <name> --readme` で概要（README）と関連する決定・知見・ノートの一覧を一度に見る。長い README は要点（「現状」の新しい 5 件と「課題・次の打ち手」の先頭 20 件、1 件 160 字まで）だけが出るので、切られた続きやほかの節は `ika kb cat <README> --section "技術"` で読む（全文は `--full`）。取り込んだ資料は件数だけ出る
 2. 領域を絞る。ビジネス・ドメインの問いなら `-d business`、技術の問いなら `-d tech`（一覧は `ika domain list`）。当たらなければ領域を外して全体に広げる
 3. `ika kb search` で絞り込む。検索語は部分一致・大文字小文字無視で、日本語は表記ゆれ（カタカナ／英語、略称）を `--any` で並べる
    ```bash

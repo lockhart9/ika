@@ -24,10 +24,10 @@ KB は環境変数 `IKA_HOME` のディレクトリにある。読み書きは `
 ## 0. 始める前に
 
 1. 対象プロダクトを決める。`ika project list` で `path` を確かめ、今いるリポジトリ（`git rev-parse --show-toplevel`）と一致するか見る。リポジトリの外で頼まれたら、そのプロダクトの `path` で作業する。`path` が空のプロダクト（事業・副業の検討）は 1・2 と 6 だけ行う
-2. `ika project show <name> --readme` で概要と関連を読む（長い README は「現状」「課題・次の打ち手」だけが出る。ほかの節は `ika kb cat <README> --section "技術"`）
+2. `ika project show <name> --readme` で概要と関連を読む（長い README は要点だけが出る: 「現状」は新しい 5 件、「課題・次の打ち手」は先頭 20 件、1 件 160 字まで。節の全文は `ika kb cat <README> --section "技術"`）
 3. テーマを決める
    - 指定があればそれ
-   - 無ければ、`approved` の要件（`ika kb search --type spec --status approved -p <name> -l`）と README の「課題・次の打ち手」から候補を3つまで挙げ、ユーザーに選んでもらう。`ika kb stale -p <name>` で古くなっているもの（README がリポジトリより古い・古い価格や競合を根拠にしている決定など）が出ていれば、確かめ直しも候補にしてよい
+   - 無ければ、`approved` の要件（`ika kb search --type spec --status approved -p <name> -l`）と README の「課題・次の打ち手」（要点は先頭 20 件なので、`ika kb cat <README> --section "課題・次の打ち手"` で全文を読む）から候補を3つまで挙げ、ユーザーに選んでもらう。`ika kb stale -p <name>` で古くなっているもの（README がリポジトリより古い・古い価格や競合を根拠にしている決定など）が出ていれば、確かめ直しも候補にしてよい
    - 候補から選べない・テーマがまだ形になっていないときは、`brainstorm` スキルで案を広げて絞ってから戻る
    - 同じテーマの要件書がすでにあれば新しく作らず、その `status` の段階から再開する
 4. 承認の前に作業ツリーを確かめる: `git status --porcelain` が空でなければ、そこで止まって扱いを聞く（他人の未コミットの変更を巻き込まない）

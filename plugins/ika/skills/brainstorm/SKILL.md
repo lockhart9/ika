@@ -36,7 +36,7 @@ KB にアクセスできない環境（claude.ai・ChatGPT web など）では�
 本人に出してもらう前に、関係するものを集める。プロダクトがあれば:
 
 ```bash
-ika project show <name> --readme                                 # 現状と「課題・次の打ち手」
+ika project show <name> --readme                                 # 現状（新しい 5 件）と「課題・次の打ち手」（先頭 20 件）。全文は ika kb cat <README> --section
 ika kb search --type decision -p <name> -l                       # 決定（見送った rejected・未決の proposed を含む）
 ika kb search --type spec --status approved -p <name> -l         # 承認済みでまだ作っていない要件
 ika kb search --type insight -p <name> -l                        # 知見

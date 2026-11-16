@@ -8,7 +8,7 @@ export IKA_HOME=<KB を置くディレクトリ>          # KB の場所。シ�
 ika init [--import <旧リポジトリ>]   # KB を作り、手元だけの git にする。--import は旧リポジトリの kb/・data/*.csv を取り込む
 ika project list                # 登録済みプロダクト
 ika project add <name> [--path <リポジトリのパス>] --summary "..."   # --path はコードのあるプロダクトだけ。事業・副業の検討なら省略
-ika project show <name> [--readme | --full] [-n 20]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧（1件1行。既定は20件まで。取り込んだ資料は件数だけ。-n 0 で資料も含めて全件）。--readme は README も出す（3000字を超える README は「現状」「課題・次の打ち手」の節と、ほかの節の見出し・字数だけ。ほかの節は ika kb cat --section）。--full は README を全文で出す
+ika project show <name> [--readme | --full] [-n 20]   # 登録情報と、projects: にそのプロダクトを含むノート・決定・知見の一覧（1件1行。既定は20件まで。取り込んだ資料は件数だけ。-n 0 で資料も含めて全件）。--readme は README も出す（3000字を超える README は要点だけ: 「現状」は日付つきの行を新しい5件、「課題・次の打ち手」は先頭20件に絞り、1件160字まで・子の行は行数だけ。切った件数は節の中に出る。ほかの節は見出し・字数だけ。節の全文は ika kb cat --section）。--full は README を全文で出す
 ika project set <name> [--url ...] [--summary ...] [--status ...] [--path ...]   # 登録済みの項目を書き換える
 ika domain list                 # 登録済みの領域（business / tech）
 ika domain add <name> --summary "..."
