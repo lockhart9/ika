@@ -29,4 +29,4 @@ tantivy = "0.27.0"
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-rust_xlsxwriter = "0.101.0"
+rust_xlsxwriter = "0.104.0"
