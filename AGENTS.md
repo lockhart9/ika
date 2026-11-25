@@ -30,7 +30,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 | `.cache/fts/` | 全文検索（`ika kb fts`）の索引。git に入れない |
 | `.cache/html/` | `ika export html` の出力（KB と同じ階層）。git に入れない |
 | `theme/style.css` | `ika export html` の見た目の上書き（任意。`:root` の CSS 変数） |
-| `data/datasets.sqlite3` | 表形式データ（価格の履歴・計測値・ログなど）。人は直接読まず、`ika data` と `ika serve` で扱う |
+| `data/datasets.csv`・`data/datasets/<name>.csv` | 表形式データ（価格の履歴・計測値・ログなど）の定義と行。`ika data` と `ika serve` で扱う |
 
 <!-- repo-only -->
 
@@ -57,7 +57,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 
 ## 守ること
 
-- ナレッジの文章は Markdown、登録簿は CSV で持ち、バイナリやDBを正本にしない。例外は表形式データ（件数が増え、集計して使うもの）で、`data/datasets.sqlite3` に持ち、`ika data` 経由でだけ読み書きする
+- ナレッジの文章は Markdown、登録簿と表形式データ（件数が増え、集計して使うもの）は CSV で持ち、バイナリやDBを正本にしない。表形式データは `ika data` だけで読み書きし、全行は読まず `show`・`query` で絞る
 - 文章で書く知見・判断と、表で溜める観測を分ける。数値や記録が行として増え続けるもの（価格の履歴・計測値など）は `ika data` のデータセットに入れ、そこから言えることをノートや insight に書く。データセットは本文で名前を引用する
 - Markdown は先頭にフロントマターを付ける（書式は `docs/kb-format.md`）。書いたら `ika check` で検証する
 - ビジネス・ドメイン知識と技術は領域（`kb/business/` と `kb/tech/`）を分けて置く。迷ったら「何の判断に使うか」で決め、もう一方からリンクする（`docs/kb-layout.md`）
@@ -68,7 +68,7 @@ KB は変わり続けるデータなので、リポジトリにコミットせ�
 - 既存のノートがあれば新規作成より更新を優先する（特に `insights/` と `kb/projects/`）
 - 各サービスのリポジトリ（`data/projects.csv` の `path`）は読むだけにし、このリポジトリから書き換えない
 - 製品リポジトリには ika・KB への言及を書かない（ika 自身のリポジトリを除く）。ika を使う人と使わない人が同じリポジトリで開発するため。コード・コメント・テスト名・ドキュメント・設定・コミットメッセージ・ブランチ名・PR に、ika・KB・`kb/` のパス・要件書・要件 ID を書かない。書き換え方と点検は `plugins/ika/skills/cycle/references/product-repo.md`
-- KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/datasets.sqlite3` も `sqlite3` コマンドなどで直接触らない。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
+- KB は `ika` CLI で読み書きする。ファイルを直接 Read/Write/Edit/`rg` しない（正規表現などで探すなら `ika kb grep`）。`data/` の CSV も同じ。使うのは `ika new --stdin` / `ika kb cat|ls|search|write|append|edit|mv|rm`、登録簿は `ika project set`、表形式データは `ika data`。どのディレクトリからでも動くので、`Bash(ika:*)` の許可1つで権限確認が出ない。書き込みは自動でコミットされる
 
 ## 外部のドキュメントを取り込むとき
 

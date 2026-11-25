@@ -57,7 +57,7 @@ enum Command {
         #[command(subcommand)]
         command: external::Command,
     },
-    /// 表形式データ（価格の履歴・計測値など）を SQLite に溜めて読む
+    /// 表形式データ（価格の履歴・計測値など）を CSV に溜め、絞り込み・集計して読む
     Data {
         #[command(subcommand)]
         command: data::Command,

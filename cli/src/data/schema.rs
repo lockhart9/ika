@@ -1,50 +1,87 @@
 //! データセットの列定義と、CSV の1セルの検証
 
+use std::cmp::Ordering;
+
 use anyhow::{Result, bail};
 use chrono::NaiveDate;
-use rusqlite::types::Value;
-use serde::{Deserialize, Serialize};
 
 /// データセット名・列名の最大長
 const MAX_NAME: usize = 48;
 
-/// 列の型。SQLite の型は `sql_type` で決まり、それ以外（date・bool・enum）は CHECK 制約で守る
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// 列の型
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     String,
     Int,
     Float,
     /// `YYYY-MM-DD`
     Date,
-    /// 入力は true / false / 1 / 0。保存は 1 / 0
+    /// 入力は true / false / 1 / 0。保存は true / false
     Bool,
     Enum(Vec<String>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     pub name: String,
     pub ty: Type,
     pub required: bool,
 }
 
+/// 1セルの値。日付は `YYYY-MM-DD` の文字列で持つ（文字列の順が日付の順になる）
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Null,
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
+}
+
+impl Value {
+    /// CSV に書く形。空欄は空文字
+    pub fn to_cell(&self) -> String {
+        match self {
+            Value::Null => String::new(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(x) => x.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Text(s) => s.clone(),
+        }
+    }
+
+    /// 並べ替え・比較用。空欄はいちばん小さい。型が違うものは文字列で比べる
+    pub fn compare(&self, other: &Value) -> Ordering {
+        match (self, other) {
+            (Value::Null, Value::Null) => Ordering::Equal,
+            (Value::Null, _) => Ordering::Less,
+            (_, Value::Null) => Ordering::Greater,
+            (Value::Int(a), Value::Int(b)) => a.cmp(b),
+            (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+            (Value::Text(a), Value::Text(b)) => a.cmp(b),
+            (a, b) => match (a.number(), b.number()) {
+                (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
+                _ => a.to_cell().cmp(&b.to_cell()),
+            },
+        }
+    }
+
+    pub fn number(&self) -> Option<f64> {
+        match self {
+            Value::Int(n) => Some(*n as f64),
+            Value::Float(x) => Some(*x),
+            _ => None,
+        }
+    }
+}
+
 /// データセット名・列名は英小文字で始まり、英小文字・数字・アンダースコアだけ
-/// （SQL の識別子としてそのまま使うので、ハイフンは使わない）
+/// （ファイル名と、`--where`・`--agg` の中でそのまま使うので、記号は使わない）
 pub fn is_ident(name: &str) -> bool {
     let mut chars = name.chars();
     name.len() <= MAX_NAME
         && chars.next().is_some_and(|c| c.is_ascii_lowercase())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
-
-/// SQL の識別子として引用する（`is_ident` を通った名前にだけ使う）
-pub fn quote(name: &str) -> String {
-    format!("\"{name}\"")
-}
-
-fn quote_str(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "''"))
 }
 
 impl Column {
@@ -74,6 +111,10 @@ impl Column {
                     if values.iter().any(|v| v.trim().is_empty() || v.trim() != v) {
                         bail!("enum の値は空にせず、前後に空白を付けないでください: {spec}");
                     }
+                    // 定義は登録簿の1セルに `;` 区切りで並べるので、値に `;` は使えない
+                    if values.iter().any(|v| v.contains(';')) {
+                        bail!("enum の値に `;` は使えません: {spec}");
+                    }
                     Type::Enum(values)
                 }
                 None => bail!(
@@ -88,7 +129,7 @@ impl Column {
         })
     }
 
-    /// `name:type` の表記に戻す（`ika data show` 用）
+    /// `name:type` の表記に戻す
     pub fn spec(&self) -> String {
         let ty = match &self.ty {
             Type::String => "string".to_string(),
@@ -101,33 +142,11 @@ impl Column {
         format!("{}:{ty}{}", self.name, if self.required { "" } else { "?" })
     }
 
-    /// CREATE TABLE の列定義
-    pub fn ddl(&self) -> String {
-        let name = quote(&self.name);
-        let sql_type = match self.ty {
-            Type::Int | Type::Bool => "INTEGER",
-            Type::Float => "REAL",
-            Type::String | Type::Date | Type::Enum(_) => "TEXT",
-        };
-        let mut ddl = format!("{name} {sql_type}");
-        if self.required {
-            ddl.push_str(" NOT NULL");
-        }
-        match &self.ty {
-            Type::Bool => ddl.push_str(&format!(" CHECK({name} IN (0, 1))")),
-            Type::Date => ddl.push_str(&format!(
-                " CHECK({name} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')"
-            )),
-            Type::Enum(values) => {
-                let list: Vec<String> = values.iter().map(|v| quote_str(v)).collect();
-                ddl.push_str(&format!(" CHECK({name} IN ({}))", list.join(", ")));
-            }
-            _ => {}
-        }
-        ddl
+    pub fn is_numeric(&self) -> bool {
+        matches!(self.ty, Type::Int | Type::Float)
     }
 
-    /// CSV の1セルを、保存する値にする。空欄は省略可の列なら NULL、必須の列ならエラー
+    /// CSV の1セルを値にする。空欄は省略可の列なら `Null`、必須の列ならエラー
     pub fn parse_cell(&self, raw: &str) -> Result<Value> {
         let text = raw.trim();
         if text.is_empty() {
@@ -136,14 +155,20 @@ impl Column {
             }
             return Ok(Value::Null);
         }
+        self.parse_value(raw)
+    }
+
+    /// 空でない値を列の型で読む（`--where` の値にも使う）
+    pub fn parse_value(&self, raw: &str) -> Result<Value> {
+        let text = raw.trim();
         Ok(match &self.ty {
             Type::String => Value::Text(raw.to_string()),
             Type::Int => match text.parse::<i64>() {
-                Ok(n) => Value::Integer(n),
+                Ok(n) => Value::Int(n),
                 Err(_) => bail!("整数ではありません: {text}"),
             },
             Type::Float => match text.parse::<f64>() {
-                Ok(x) if x.is_finite() => Value::Real(x),
+                Ok(x) if x.is_finite() => Value::Float(x),
                 _ => bail!("数値ではありません: {text}"),
             },
             Type::Date => match NaiveDate::parse_from_str(text, "%Y-%m-%d") {
@@ -151,8 +176,8 @@ impl Column {
                 _ => bail!("日付は YYYY-MM-DD にしてください: {text}"),
             },
             Type::Bool => match text.to_ascii_lowercase().as_str() {
-                "true" | "1" => Value::Integer(1),
-                "false" | "0" => Value::Integer(0),
+                "true" | "1" => Value::Bool(true),
+                "false" | "0" => Value::Bool(false),
                 _ => bail!("真偽は true / false / 1 / 0 のどれかにしてください: {text}"),
             },
             Type::Enum(values) => {
@@ -181,12 +206,13 @@ mod tests {
         assert!(Column::parse("price").is_err());
         assert!(Column::parse("price:money").is_err());
         assert!(Column::parse("kind:enum()").is_err());
+        assert!(Column::parse("kind:enum(a;b|c)").is_err());
     }
 
     #[test]
     fn validates_cells() {
         let int = Column::parse("n:int").unwrap();
-        assert_eq!(int.parse_cell(" 12 ").unwrap(), Value::Integer(12));
+        assert_eq!(int.parse_cell(" 12 ").unwrap(), Value::Int(12));
         assert!(int.parse_cell("1.5").is_err());
         assert!(int.parse_cell("").is_err());
         let opt = Column::parse("n:int?").unwrap();
@@ -196,15 +222,16 @@ mod tests {
         assert!(date.parse_cell("2026-1-8").is_err());
         assert!(date.parse_cell("先週").is_err());
         let flag = Column::parse("f:bool").unwrap();
-        assert_eq!(flag.parse_cell("TRUE").unwrap(), Value::Integer(1));
+        assert_eq!(flag.parse_cell("TRUE").unwrap(), Value::Bool(true));
+        assert_eq!(flag.parse_cell("0").unwrap().to_cell(), "false");
         let kind = Column::parse("k:enum(a|b)").unwrap();
         assert!(kind.parse_cell("c").is_err());
     }
 
     #[test]
-    fn ddl_guards_types() {
-        let ddl = Column::parse("k:enum(it's|b)").unwrap().ddl();
-        assert!(ddl.contains("'it''s'"));
-        assert!(Column::parse("d:date").unwrap().ddl().contains("GLOB"));
+    fn compares_by_type() {
+        assert_eq!(Value::Int(9).compare(&Value::Int(10)), Ordering::Less);
+        assert_eq!(Value::Float(2.5).compare(&Value::Int(2)), Ordering::Greater);
+        assert_eq!(Value::Null.compare(&Value::Int(0)), Ordering::Less);
     }
 }

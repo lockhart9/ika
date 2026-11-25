@@ -43,10 +43,10 @@ ika external rm <name>              # 目録から外す（外部の中身には
 ika data new <name> --summary "..." --col date:date --col 'kind:enum(sold|listed)' --col price:int --col 'url:string?' --key date,kind [--domain ...] [--project ...]   # データセット（表）を作る。型は string/int/float/date/bool/enum(a|b)、`?` は省略可、--key は重複判定
 ika data append <name> [--on-conflict error|skip|replace]   # 標準入力のヘッダ付き CSV を検証して追記（1行でも不正なら何も書かない）
 ika data ls                         # データセットの一覧
-ika data show <name> [--tail 5]     # 定義・行数・末尾
-ika data sql "select ..." [--json]  # 読み取り専用で SELECT（テーブル名はデータセット名）。集計・結合もここで
+ika data show <name> [--tail 5]     # 定義・行数・列ごとの要約（空欄の数・最小/最大/平均・値ごとの件数・種類の数）・末尾
+ika data query <name> [-w "列 演算子 値"]... [--cols a,b] [--group-by a,b] [--agg count,sum:列,avg:列,min:列,max:列,count:列] [--sort 列,-列] [--limit 50] [--json]   # 絞り込み（= != < <= > >= ~ !~。繰り返すと AND。`列=` は空欄）・列の選択・グループ集計・並べ替え。既定 50 行まで（0 で全部）
 ika data export <name>              # CSV で標準出力へ
-ika data delete <name> --where "..."   # 行を消す（訂正は消して追記し直す）
+ika data delete <name> -w "列 演算子 値"...   # 条件（query と同じ）に合う行を消す（訂正は消して追記し直す）
 ika data rm <name>                  # データセットごと消す
 ika serve [--port 8787] [--open]   # KB をブラウザで読むローカルサーバー（読み取り専用。127.0.0.1 だけで待ち受け、Host は localhost・127.0.0.1 のみ）。毎回ファイルを読み直す。データセットも `/data/<name>` で読める（新しい順に最大200行）。タグ一覧は `/tags`、タグ別は `/tags/<タグ>`。検索画面は全文検索（`ika kb fts`）で、「文字列一致」にすると `ika kb search` と同じ探し方になる。検索語は結果の抜粋と、そこから開いたページ（`?hl=`）で黄色くハイライトする
 ika check                       # KB・登録簿（外部ナレッジの目録を含む。無いフォルダは「注意」）・データセット定義・図の記法の検証。14 日以内のノートでどこからもリンクされていないものは「注意」に出す（失敗にはしない）。リポジトリ内で実行するとプラグインも検証する
