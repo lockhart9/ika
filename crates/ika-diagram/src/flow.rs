@@ -1,10 +1,11 @@
 //! `flow`: フロー・状態遷移。最初の行が `->` でつないだ一本の鎖で、`?` の判断で終われば、
-//! 字下げした行が1行1枝の分岐になる（`ラベル: 鎖`）。合流とループは描かない。
+//! 字下げした行が1行1枝の分岐になる（`ラベル: 鎖`）。合流は描かない。
+//! 戻り（ループ）は、鎖の最後に `^名前` と書くと「↩ 名前」の箱になる（線は引かない）。
 //!
 //! ```text
 //! Markdown | kb/ のページ -> 図のブロックを探す -> ?記法は正しい？
 //!   はい: *CSS の部品に展開 -> +単独の HTML
-//!   いいえ: !行と理由を表示して止める
+//!   いいえ: !行と理由を表示して止める -> ^図のブロックを探す
 //! ```
 
 use crate::{Line, ParseError, empty, esc, split_label, split_note};
@@ -40,12 +41,16 @@ pub enum NodeKind {
     Ok,
     /// `!` 問題
     Problem,
+    /// `^` 戻り（名前は戻り先。鎖の最後だけ）
+    Back,
 }
 
 pub(crate) fn parse(lines: &[Line]) -> Result<Flow, Vec<ParseError>> {
     let mut flow = Flow::default();
     let mut errors = Vec::new();
     let mut first_branch_line = None;
+    // 戻りの箱と、それを書いた行
+    let mut backs = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let result = if i == 0 {
             if line.indented {
@@ -65,10 +70,37 @@ pub(crate) fn parse(lines: &[Line]) -> Result<Flow, Vec<ParseError>> {
                 })
             })
         };
-        if let Err(message) = result {
-            errors.push(ParseError::new(line.no, message));
+        match result {
+            Ok(()) => {
+                let chain = flow
+                    .branches
+                    .last()
+                    .filter(|_| i > 0)
+                    .map_or(&flow.chain, |b| &b.chain);
+                backs.extend(
+                    chain
+                        .iter()
+                        .filter(|n| n.kind == NodeKind::Back)
+                        .map(|n| (line.no, n.name.clone())),
+                );
+            }
+            Err(message) => errors.push(ParseError::new(line.no, message)),
         }
     }
+    for (no, target) in backs {
+        let exists = flow
+            .chain
+            .iter()
+            .chain(flow.branches.iter().flat_map(|b| &b.chain))
+            .any(|n| n.kind != NodeKind::Back && n.name == target);
+        if !exists {
+            errors.push(ParseError::new(
+                no,
+                format!("戻り先「{target}」が図の中にありません（^ のあとに箱の名前を書きます）"),
+            ));
+        }
+    }
+    errors.sort_by_key(|e| e.line);
     if let Some(no) = first_branch_line
         && flow
             .chain
@@ -90,7 +122,12 @@ pub(crate) fn parse(lines: &[Line]) -> Result<Flow, Vec<ParseError>> {
 }
 
 fn chain(text: &str) -> Result<Vec<Node>, String> {
-    text.split("->").map(node).collect()
+    let nodes: Vec<Node> = text.split("->").map(node).collect::<Result<_, _>>()?;
+    let last = nodes.len() - 1;
+    if nodes[..last].iter().any(|n| n.kind == NodeKind::Back) {
+        return Err("戻り（^）は鎖の最後にだけ書けます".into());
+    }
+    Ok(nodes)
 }
 
 fn node(text: &str) -> Result<Node, String> {
@@ -101,6 +138,7 @@ fn node(text: &str) -> Result<Node, String> {
         Some('*') => NodeKind::Key,
         Some('+') => NodeKind::Ok,
         Some('!') => NodeKind::Problem,
+        Some('^') => NodeKind::Back,
         _ => NodeKind::Plain,
     };
     let rest = if kind == NodeKind::Plain {
@@ -146,6 +184,12 @@ fn push_chain(out: &mut String, chain: &[Node]) {
             NodeKind::Key => "ikd-node ikd-key",
             NodeKind::Ok => "ikd-node ikd-ok",
             NodeKind::Problem => "ikd-node ikd-bad",
+            NodeKind::Back => "ikd-node ikd-back",
+        };
+        let back = if node.kind == NodeKind::Back {
+            "↩ "
+        } else {
+            ""
         };
         let note = if node.note.is_empty() {
             String::new()
@@ -153,7 +197,7 @@ fn push_chain(out: &mut String, chain: &[Node]) {
             format!("<small>{}</small>", esc(&node.note))
         };
         out.push_str(&format!(
-            "<div class=\"{class}\">{}{note}</div>",
+            "<div class=\"{class}\">{back}{}{note}</div>",
             esc(&node.name)
         ));
     }
@@ -208,6 +252,30 @@ mod tests {
 
         let errors = parse_src("  a -> b").unwrap_err();
         assert!(errors[0].message.contains("字下げせず"));
+    }
+
+    #[test]
+    fn back_nodes_point_to_a_box_in_the_same_flow() {
+        let flow =
+            parse_src("依頼 -> 実装 -> ?PASS か\n  PASS: +完了\n  FAIL: !差し戻し -> ^実装\n")
+                .unwrap();
+        let back = &flow.branches[1].chain[1];
+        assert_eq!((back.kind, back.name.as_str()), (NodeKind::Back, "実装"));
+        assert!(render(&flow).contains(
+            "<span class=\"ikd-arrow\"></span><div class=\"ikd-node ikd-back\">↩ 実装</div>"
+        ));
+
+        let looped = parse_src("a -> b -> ^a").unwrap();
+        assert_eq!(looped.chain[2].kind, NodeKind::Back);
+    }
+
+    #[test]
+    fn rejects_backs_to_missing_boxes_and_backs_in_the_middle() {
+        let errors = parse_src("a -> ?q\n  x: ^b\n  y: ^a -> c\n  z: ^^a\n").unwrap_err();
+        let got: Vec<_> = errors.iter().map(|e| e.line).collect();
+        assert_eq!(got, [2, 3, 4], "{errors:?}");
+        assert!(errors[0].message.contains("「b」"), "{errors:?}");
+        assert!(errors[1].message.contains("最後"), "{errors:?}");
     }
 
     #[test]

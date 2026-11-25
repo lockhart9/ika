@@ -170,7 +170,7 @@ pub(crate) fn render(classes: &Classes) -> String {
 }
 
 fn tree(out: &mut String, classes: &Classes, i: usize) {
-    out.push_str("<div class=\"ikd-tree\">");
+    out.push_str("<div class=\"ikd-inh\">");
     out.push_str(&class_box(&classes.classes[i]));
     let children: Vec<_> = (0..classes.classes.len())
         .filter(|&c| classes.classes[c].parent == Some(i))
@@ -261,13 +261,13 @@ mod tests {
         assert_eq!(
             html,
             "<div class=\"ikd-forest\">\
-             <div class=\"ikd-tree\"><div class=\"ikd-ent ikd-cls\"><h4 class=\"ikd-abs\">A<em>abstract</em></h4></div>\
+             <div class=\"ikd-inh\"><div class=\"ikd-ent ikd-cls\"><h4 class=\"ikd-abs\">A<em>abstract</em></h4></div>\
              <div class=\"ikd-stem\"></div><div class=\"ikd-kids\"><div class=\"ikd-kid\">\
-             <div class=\"ikd-tree\"><div class=\"ikd-ent ikd-cls\"><h4>B</h4></div>\
+             <div class=\"ikd-inh\"><div class=\"ikd-ent ikd-cls\"><h4>B</h4></div>\
              <div class=\"ikd-stem\"></div><div class=\"ikd-kids\"><div class=\"ikd-kid\">\
-             <div class=\"ikd-tree\"><div class=\"ikd-ent ikd-cls\"><h4>C</h4></div></div>\
+             <div class=\"ikd-inh\"><div class=\"ikd-ent ikd-cls\"><h4>C</h4></div></div>\
              </div></div></div></div></div></div>\
-             <div class=\"ikd-tree\"><div class=\"ikd-ent ikd-cls\"><h4>D</h4></div></div>\
+             <div class=\"ikd-inh\"><div class=\"ikd-ent ikd-cls\"><h4>D</h4></div></div>\
              </div>"
         );
     }
