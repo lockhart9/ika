@@ -8,32 +8,38 @@
 
 use std::fmt;
 
+mod bars;
 mod class;
 mod compare;
 mod er;
 mod flow;
 mod layers;
+mod matrix;
 mod seq;
 mod timeline;
+mod tree;
 
+pub use bars::{Bar, Bars};
 pub use class::{Class, Classes, Member};
 pub use compare::{Choice, Compare, Point};
 pub use er::{Attr, Entity, Er, Relation};
 pub use flow::{Branch, Flow, Node, NodeKind};
 pub use layers::{Layer, Layers, Tone};
+pub use matrix::{Axis, Matrix, MatrixItem, Quadrant};
 pub use seq::{Arrow, Seq, Step};
 pub use timeline::{Item, Timeline};
+pub use tree::{Tree, TreeNode};
 
 /// 図として扱う言語名
 pub const LANGS: &[&str] = &[
-    "seq", "flow", "layers", "er", "class", "timeline", "compare",
+    "seq", "flow", "layers", "er", "class", "timeline", "compare", "tree", "matrix", "bars",
 ];
 
 /// 図の部品のスタイル。`:root` に色・フォントの変数の既定値（ライト・ダーク）を持つ
 pub const CSS: &str = include_str!("style.css");
 
 /// 解析した図
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Diagram {
     Seq(Seq),
     Flow(Flow),
@@ -42,6 +48,9 @@ pub enum Diagram {
     Class(Classes),
     Timeline(Timeline),
     Compare(Compare),
+    Tree(Tree),
+    Matrix(Box<Matrix>),
+    Bars(Bars),
 }
 
 /// 記法の誤り。`line` はブロックの中の行番号（1 始まり）
@@ -80,6 +89,9 @@ pub fn parse(lang: &str, src: &str) -> Option<Result<Diagram, Vec<ParseError>>> 
         "class" => class::parse(&lines).map(Diagram::Class),
         "timeline" => timeline::parse(&lines).map(Diagram::Timeline),
         "compare" => compare::parse(&lines).map(Diagram::Compare),
+        "tree" => tree::parse(&lines).map(Diagram::Tree),
+        "matrix" => matrix::parse(&lines).map(|m| Diagram::Matrix(Box::new(m))),
+        "bars" => bars::parse(&lines).map(Diagram::Bars),
         _ => return None,
     })
 }
@@ -94,6 +106,9 @@ pub fn render(diagram: &Diagram) -> String {
         Diagram::Class(d) => ("class", class::render(d)),
         Diagram::Timeline(d) => ("timeline", timeline::render(d)),
         Diagram::Compare(d) => ("compare", compare::render(d)),
+        Diagram::Tree(d) => ("tree", tree::render(d)),
+        Diagram::Matrix(d) => ("matrix", matrix::render(d)),
+        Diagram::Bars(d) => ("bars", bars::render(d)),
     };
     format!("<div class=\"ikd ikd-{kind}\">{body}</div>")
 }
@@ -129,6 +144,8 @@ pub fn esc(text: &str) -> String {
 struct Line<'a> {
     no: usize,
     indented: bool,
+    /// 字下げの幅（半角空白 1・全角空白 2・タブ 4 で数える）
+    indent: usize,
     text: &'a str,
 }
 
@@ -137,13 +154,62 @@ fn lines(src: &str) -> Vec<Line<'_>> {
         .enumerate()
         .filter_map(|(i, raw)| {
             let text = raw.trim();
+            let indent = indent_width(raw);
             (!text.is_empty() && !text.starts_with('#')).then(|| Line {
                 no: i + 1,
-                indented: raw.starts_with([' ', '\t', '\u{3000}']),
+                indented: indent > 0,
+                indent,
                 text,
             })
         })
         .collect()
+}
+
+fn indent_width(raw: &str) -> usize {
+    raw.chars()
+        .map_while(|c| match c {
+            ' ' => Some(1),
+            '\u{3000}' => Some(2),
+            '\t' => Some(4),
+            _ => None,
+        })
+        .sum()
+}
+
+/// 先頭の印（`*` 主役・`+` 成功・`!` 問題）と、残りの文
+fn mark(text: &str) -> (Mark, &str) {
+    let text = text.trim();
+    let kind = match text.chars().next() {
+        Some('*') => Mark::Key,
+        Some('+') => Mark::Ok,
+        Some('!') => Mark::Problem,
+        _ => return (Mark::Plain, text),
+    };
+    (kind, text[1..].trim())
+}
+
+/// 箱の印。`flow` の `?` 判断と `^` 戻りは [`NodeKind`] にだけある
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Plain,
+    /// `*` 主役
+    Key,
+    /// `+` 成功・済み
+    Ok,
+    /// `!` 問題
+    Problem,
+}
+
+impl Mark {
+    /// 箱に足す class（印が無ければ空）
+    fn class(self) -> &'static str {
+        match self {
+            Mark::Plain => "",
+            Mark::Key => " ikd-key",
+            Mark::Ok => " ikd-ok",
+            Mark::Problem => " ikd-bad",
+        }
+    }
 }
 
 /// 最初の `:`（全角の `：` も）で2つに分ける。両側は前後の空白を除く
@@ -186,6 +252,9 @@ mod tests {
             ("class", "A"),
             ("timeline", "2026-10-23: x"),
             ("compare", "A\n  + x"),
+            ("tree", "a\n  b"),
+            ("matrix", "x: 低 -> 高\ny: 低 -> 高\n右上: a"),
+            ("bars", "a: 1"),
         ];
         assert_eq!(samples.len(), LANGS.len());
         for (lang, src) in samples {
@@ -208,9 +277,20 @@ mod tests {
 
     #[test]
     fn lines_skip_blanks_and_comments_and_keep_numbers() {
-        let lines = lines("# c\n\na\n  b\n\u{3000}c");
-        let got: Vec<_> = lines.iter().map(|l| (l.no, l.indented, l.text)).collect();
-        assert_eq!(got, [(3, false, "a"), (4, true, "b"), (5, true, "c")]);
+        let lines = lines("# c\n\na\n  b\n\u{3000}c\n\t d");
+        let got: Vec<_> = lines
+            .iter()
+            .map(|l| (l.no, l.indented, l.indent, l.text))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (3, false, 0, "a"),
+                (4, true, 2, "b"),
+                (5, true, 2, "c"),
+                (6, true, 5, "d")
+            ]
+        );
     }
 
     #[test]

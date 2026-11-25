@@ -68,6 +68,44 @@
 .ikd-lane:last-child::before { top:0; bottom:50%; }
 .ikd-lane:only-child::before { display:none; }
 .ikd-lane > .ikd-arrow:first-child { margin-left:0; }
+.ikd-node.ikd-back { background:transparent; border-style:dashed; border-color:var(--ink-3); color:var(--ink-2); font-weight:400; }
+
+/* tree（左に寄せた木。子は字下げし、罫線で親につなぐ） */
+.ikd-tv, .ikd-tv ul { list-style:none; margin:0; padding:0; }
+.ikd-tv { width:max-content; font-size:.8rem; line-height:1.5; }
+.ikd-tv ul { padding-left:1.7rem; }
+.ikd-tv li { position:relative; padding:.22rem 0; }
+.ikd-tv ul > li::before { content:""; position:absolute; left:-1.05rem; top:0; bottom:0; border-left:1.5px solid var(--line-2); }
+.ikd-tv ul > li:last-child::before { bottom:auto; height:1.22rem; }
+.ikd-tv ul > li::after { content:""; position:absolute; left:-1.05rem; top:1.22rem; width:.9rem; border-top:1.5px solid var(--line-2); }
+.ikd-tv .ikd-node { display:inline-block; padding:.28rem .8rem; text-align:left; }
+.ikd-tv .ikd-node small { display:inline; margin-left:.7em; }
+
+/* matrix（2×2。y 軸は左、x 軸は下。どちらも矢印の先が高い側） */
+.ikd-mx { display:grid; grid-template-columns:auto 1fr; grid-template-rows:1fr auto; gap:.5rem; min-width:26rem; font-size:.8rem; line-height:1.5; }
+.ikd-mx-y { display:flex; flex-direction:column; justify-content:space-between; align-items:center; position:relative; padding:0 .55rem 0 0; border-right:1.5px solid var(--ink-3); }
+.ikd-mx-y::after { content:""; position:absolute; right:calc(-4.25px - .75px); top:-1px; border-bottom:7px solid var(--ink-3); border-left:5px solid transparent; border-right:5px solid transparent; }
+.ikd-mx-y span { writing-mode:vertical-rl; font-size:.72rem; color:var(--ink-2); padding:.4rem 0; }
+.ikd-mx-x { grid-column:2; display:flex; justify-content:space-between; position:relative; padding-top:.35rem; border-top:1.5px solid var(--ink-3); font-size:.72rem; color:var(--ink-2); }
+.ikd-mx-x::after { content:""; position:absolute; right:-1px; top:calc(-4.25px - .75px); border-left:7px solid var(--ink-3); border-top:5px solid transparent; border-bottom:5px solid transparent; }
+.ikd-mx-x span { padding:0 .4rem; }
+.ikd-mx-grid { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:4px; }
+.ikd-mx-cell { min-height:6.5rem; padding:.7rem .85rem; background:var(--paper); border:1px solid var(--line); border-radius:6px; }
+.ikd-mx-cell > b { display:block; margin-bottom:.45rem; font-size:.74rem; font-weight:700; color:var(--ink-2); }
+.ikd-mx-cell ul { display:flex; flex-wrap:wrap; gap:.4rem; }
+.ikd-mx-cell li { padding:.15rem .7rem; background:var(--raise); border:1px solid var(--line-2); border-radius:1rem; }
+.ikd-mx-cell li.ikd-key { background:var(--accent-tint); border-color:var(--accent); font-weight:700; }
+
+/* bars（横棒。長さは最大値に対する比） */
+.ikd-bar-list { display:grid; grid-template-columns:max-content minmax(8rem,1fr) max-content; gap:.55rem 1rem; align-items:center; min-width:24rem; font-size:.8rem; line-height:1.5; }
+.ikd-bar-row { display:contents; }
+.ikd-bar-name small { display:block; font-size:.68rem; color:var(--ink-3); }
+.ikd-bar-track { height:.9rem; background:var(--paper); border-radius:3px; }
+.ikd-bar { display:block; height:100%; background:var(--line-2); border-radius:3px; }
+.ikd-bar-val { font:500 .76rem var(--mono); color:var(--ink-2); text-align:right; }
+.ikd-bar-row.ikd-key .ikd-bar-name { font-weight:700; }
+.ikd-bar-row.ikd-key .ikd-bar { background:var(--accent); }
+.ikd-bar-row.ikd-key .ikd-bar-val { color:var(--ink); font-weight:700; }
 
 /* layers */
 .ikd-layers { display:grid; gap:.55rem; min-width:30rem; font-size:.8rem; line-height:1.5; }
@@ -102,7 +140,7 @@
 
 /* class の継承の木（中空の三角が親を指す） */
 .ikd-forest { display:flex; gap:2.5rem; align-items:flex-start; width:max-content; margin:0 auto; }
-.ikd-tree { display:flex; flex-direction:column; align-items:center; }
+.ikd-inh { display:flex; flex-direction:column; align-items:center; }
 .ikd-stem { position:relative; width:0; height:1.5rem; border-left:1.5px solid var(--ink-2); margin-top:.7rem; }
 .ikd-stem::before, .ikd-stem::after { content:""; position:absolute; left:50%; transform:translateX(-50%); }
 .ikd-stem::before { top:-.78rem; width:.9rem; height:.8rem; background:var(--ink-2); clip-path:polygon(50% 0,0 100%,100% 100%); }
