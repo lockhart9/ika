@@ -10,7 +10,7 @@ ika kb search <語> <言い換え> --any -p <name> -l         # プロダクト�
 ika kb search <語> <言い換え> --any -d business -l       # 他のプロダクトで調べた市場・制度
 ika kb search --type insight -l                         # 横断の知見
 ika data ls                                             # 競合比較・価格などのデータセット
-ika data sql "select ..."                               # 既存データで答えが出るか
+ika data query <name> --group-by … --agg …              # 既存データで答えが出るか
 ika external list -p <name>                             # KB の外のナレッジ（会社の Drive・SaaS・手元のフォルダ）の目録
 ```
 

@@ -3382,7 +3382,7 @@ mod plugin_version {
     }
 }
 
-// ---- ika data（SQLite のデータセット）----
+// ---- ika data（CSV のデータセット）----
 
 mod data {
     use super::*;
@@ -3409,6 +3409,54 @@ mod data {
         assert!(run.ok, "{}", run.err);
     }
 
+    fn append(f: &Fixture, csv: &str) {
+        let run = f.ika_with(&["data", "append", "prices"], Some(csv));
+        assert!(run.ok, "{}", run.err);
+    }
+
+    /// 集計を試すための 4 行
+    fn sample(f: &Fixture) {
+        prices(f);
+        append(
+            f,
+            "date,kind,price,url\n\
+             2026-09-30,sold,100,https://example.com/a\n\
+             2026-10-01,sold,300,\n\
+             2026-10-01,listed,1000,https://example.com/PRO\n\
+             2026-10-02,listed,950,\n",
+        );
+    }
+
+    fn query(f: &Fixture, args: &[&str]) -> Run {
+        f.ika(&[&["data", "query", "prices"], args].concat())
+    }
+
+    #[test]
+    fn new_keeps_the_definition_in_a_registry_and_rows_in_a_plain_csv() {
+        let f = Fixture::new("data-files");
+        prices(&f);
+        assert_eq!(
+            f.read("data/datasets.csv"),
+            "name,summary,domain,projects,key,columns,created\n\
+             prices,価格の履歴,,,date;kind,date:date;kind:enum(sold|listed);price:int;url:string?,"
+                .to_string()
+                + &chrono::Local::now().format("%Y-%m-%d").to_string()
+                + "\n"
+        );
+        assert_eq!(f.read("data/datasets/prices.csv"), "date,kind,price,url\n");
+        assert!(!f.exists("data/datasets.sqlite3"));
+        let again = f.ika(&{
+            let mut args = PRICES.to_vec();
+            args.extend(["--col", "url:string?"]);
+            args
+        });
+        assert!(
+            !again.ok && again.err.contains("すでにあります"),
+            "{}",
+            again.err
+        );
+    }
+
     #[test]
     fn append_validates_the_whole_input_before_writing() {
         let f = Fixture::new("data-validate");
@@ -3421,22 +3469,33 @@ mod data {
         assert!(bad.err.contains("3 行目: date"), "{}", bad.err);
         assert!(bad.err.contains("3 行目: kind"), "{}", bad.err);
         assert!(bad.err.contains("3 行目: price"), "{}", bad.err);
-        let listed = f.ika(&["data", "ls"]).out;
-        assert!(
-            listed.contains("0 行"),
-            "1行目が正しくても、不正な行があれば何も入らない: {listed}"
+        assert_eq!(
+            f.read("data/datasets/prices.csv"),
+            "date,kind,price,url\n",
+            "1行目が正しくても、不正な行があれば何も入らない"
         );
 
-        let ok = f.ika_with(
-            &["data", "append", "prices"],
-            Some("price,date,kind,url\n100,2026-10-18,sold,https://example.com\n"),
+        append(
+            &f,
+            "price,date,kind,url\n 100 ,2026-10-18,sold,https://example.com\n",
         );
-        assert!(ok.ok, "{}", ok.err);
-        let rows = f.ika(&["data", "sql", "select date, kind, price, url from prices"]);
         assert_eq!(
-            rows.out, "date\tkind\tprice\turl\n2026-10-18\tsold\t100\thttps://example.com\n",
-            "列の順番は自由"
+            f.read("data/datasets/prices.csv"),
+            "date,kind,price,url\n2026-10-18,sold,100,https://example.com\n",
+            "列の順番は自由で、定義の順・整えた値で書く"
         );
+    }
+
+    #[test]
+    fn bools_are_written_as_true_or_false() {
+        let f = Fixture::new("data-bool");
+        let run = f.ika(&["data", "new", "flags", "--summary", "s", "--col", "on:bool"]);
+        assert!(run.ok, "{}", run.err);
+        let run = f.ika_with(&["data", "append", "flags"], Some("on\nTRUE\n0\n"));
+        assert!(run.ok, "{}", run.err);
+        assert_eq!(f.read("data/datasets/flags.csv"), "on\ntrue\nfalse\n");
+        let show = f.ika(&["data", "show", "flags"]).out;
+        assert!(show.contains("on:bool  true 1 / false 1"), "{show}");
     }
 
     #[test]
@@ -3456,62 +3515,226 @@ mod data {
     }
 
     #[test]
-    fn key_conflicts_error_skip_or_replace() {
+    fn key_conflicts_error_skip_or_replace_in_place() {
         let f = Fixture::new("data-conflict");
         prices(&f);
-        let row = |price: u32| format!("date,kind,price\n2026-10-18,sold,{price}\n");
-        assert!(
-            f.ika_with(&["data", "append", "prices"], Some(&row(100)))
-                .ok
+        append(
+            &f,
+            "date,kind,price\n2026-10-18,sold,100\n2026-10-19,sold,150\n",
         );
+        let row = |price: u32| format!("date,kind,price\n2026-10-18,sold,{price}\n");
+        let file = |f: &Fixture| f.read("data/datasets/prices.csv");
 
         let dup = f.ika_with(&["data", "append", "prices"], Some(&row(200)));
         assert!(!dup.ok && dup.err.contains("重複"), "{}", dup.err);
+        let within = f.ika_with(
+            &["data", "append", "prices"],
+            Some("date,kind,price\n2026-10-20,sold,1\n2026-10-20,sold,2\n"),
+        );
+        assert!(
+            !within.ok && within.err.contains("2 件目"),
+            "入力の中の重複も見る"
+        );
 
         let skip = f.ika_with(
             &["data", "append", "prices", "--on-conflict", "skip"],
             Some(&row(200)),
         );
         assert!(skip.ok && skip.out.contains("重複 1 行"), "{}", skip.out);
-        let price = |f: &Fixture| f.ika(&["data", "sql", "select price from prices"]).out;
-        assert_eq!(price(&f), "price\n100\n");
+        assert!(file(&f).contains("2026-10-18,sold,100,"));
 
         let replace = f.ika_with(
             &["data", "append", "prices", "--on-conflict", "replace"],
             Some(&row(300)),
         );
-        assert!(replace.ok, "{}", replace.err);
-        assert_eq!(price(&f), "price\n300\n");
+        assert!(
+            replace.ok && replace.out.contains("1 行を置き換え"),
+            "{}",
+            replace.out
+        );
+        assert_eq!(
+            file(&f),
+            "date,kind,price,url\n2026-10-18,sold,300,\n2026-10-19,sold,150,\n",
+            "置き換えた行は元の位置のまま"
+        );
     }
 
     #[test]
-    fn sql_is_read_only_and_can_emit_json() {
-        let f = Fixture::new("data-sql");
-        prices(&f);
+    fn ls_and_show_summarize_without_dumping_rows() {
+        let f = Fixture::new("data-show");
+        sample(&f);
+        let ls = f.ika(&["data", "ls"]).out;
         assert!(
-            f.ika_with(
-                &["data", "append", "prices"],
-                Some("date,kind,price\n2026-10-18,sold,100\n")
-            )
-            .ok
-        );
-        for query in [
-            "delete from prices",
-            "drop table prices",
-            "insert into prices values ('2026-10-19','sold',1,null)",
-        ] {
-            let run = f.ika(&["data", "sql", query]);
-            assert!(!run.ok, "{query}");
-        }
-        assert_eq!(
-            f.ika(&["data", "sql", "select count(*) n from prices"]).out,
-            "n\n1\n"
+            ls.contains("prices") && ls.contains("4 行") && ls.contains("価格の履歴"),
+            "{ls}"
         );
 
-        let json = f.ika(&["data", "sql", "select price, url from prices", "--json"]);
+        let show = f.ika(&["data", "show", "prices", "--tail", "1"]);
+        assert!(show.ok, "{}", show.err);
+        let out = show.out;
+        assert!(out.contains("行数: 4"), "{out}");
+        assert!(out.contains("key: date, kind"), "{out}");
+        assert!(
+            out.contains("date:date  最小 2026-09-30 / 最大 2026-10-02"),
+            "{out}"
+        );
+        assert!(
+            out.contains("kind:enum(sold|listed)  sold 2 / listed 2"),
+            "{out}"
+        );
+        assert!(
+            out.contains("price:int  最小 100 / 最大 1000 / 平均 587.5"),
+            "{out}"
+        );
+        assert!(out.contains("url:string?  空欄 2 · 2 種類"), "{out}");
+        assert!(
+            out.contains("末尾 1 行:\n  date\tkind\tprice\turl\n  2026-10-02\tlisted\t950\t\n"),
+            "{out}"
+        );
+        assert!(
+            !out.contains("2026-09-30\tsold"),
+            "末尾以外の行は出さない: {out}"
+        );
+    }
+
+    #[test]
+    fn query_filters_by_column_type() {
+        let f = Fixture::new("data-where");
+        sample(&f);
+        let dates = |args: &[&str]| {
+            let run = query(&f, &[args, &["--cols", "date,price"]].concat());
+            assert!(run.ok, "{}", run.err);
+            run.out
+        };
+        assert_eq!(
+            dates(&["-w", "price>900"]),
+            "date\tprice\n2026-10-01\t1000\n2026-10-02\t950\n",
+            "数として比べる（文字列なら 950 > 1000）"
+        );
+        assert_eq!(
+            dates(&["-w", "date>=2026-10-01", "-w", "kind=sold"]),
+            "date\tprice\n2026-10-01\t300\n",
+            "繰り返すと AND"
+        );
+        assert_eq!(
+            dates(&["-w", "url~pro"]),
+            "date\tprice\n2026-10-01\t1000\n",
+            "~ は大文字小文字を区別せずに含む"
+        );
+        assert_eq!(
+            dates(&["-w", "url="]),
+            "date\tprice\n2026-10-01\t300\n2026-10-02\t950\n",
+            "`列=` は空欄の行"
+        );
+        assert_eq!(
+            dates(&["-w", "url!~example"]),
+            "date\tprice\n",
+            "空欄は値との比較に当たらない"
+        );
+        assert_eq!(
+            dates(&["-w", "price <= 100"]),
+            "date\tprice\n2026-09-30\t100\n"
+        );
+
+        for (bad, why) in [
+            ("price>abc", "整数ではありません"),
+            ("kind=bought", "のどれかにしてください"),
+            ("memo=x", "定義にない列"),
+            ("price", "演算子"),
+            ("price~", "空欄を探す"),
+        ] {
+            let run = query(&f, &["-w", bad]);
+            assert!(!run.ok && run.err.contains(why), "{bad}: {}", run.err);
+        }
+    }
+
+    #[test]
+    fn query_aggregates_per_group() {
+        let f = Fixture::new("data-agg");
+        sample(&f);
+        let run = query(
+            &f,
+            &[
+                "--group-by",
+                "kind",
+                "--agg",
+                "count,sum:price,avg:price,count:url,max:date",
+            ],
+        );
+        assert!(run.ok, "{}", run.err);
+        assert_eq!(
+            run.out,
+            "kind\tcount\tsum_price\tavg_price\tcount_url\tmax_date\n\
+             listed\t2\t1950\t975\t1\t2026-10-02\n\
+             sold\t2\t400\t200\t1\t2026-10-01\n",
+            "グループはキーの昇順"
+        );
+
+        let all = query(&f, &["--agg", "count", "-w", "kind=sold"]);
+        assert_eq!(all.out, "count\n2\n", "--group-by なしは全体で 1 行");
+        let none = query(&f, &["--agg", "count,avg:price", "-w", "price>5000"]);
+        assert_eq!(none.out, "count\tavg_price\n0\t\n", "0 件でも 1 行出す");
+        let avg = query(&f, &["--agg", "avg:price", "-w", "price<1000"]);
+        assert_eq!(avg.out, "avg_price\n450\n");
+
+        let only_group = query(&f, &["--group-by", "date"]);
+        assert_eq!(
+            only_group.out, "date\tcount\n2026-09-30\t1\n2026-10-01\t2\n2026-10-02\t1\n",
+            "--agg が無ければ count"
+        );
+
+        for (bad, why) in [
+            (vec!["--agg", "sum:date"], "int・float"),
+            (vec!["--agg", "median:price"], "集計は"),
+            (vec!["--agg", "sum"], "列を付けて"),
+            (vec!["--agg", "count", "--cols", "date"], "--cols"),
+        ] {
+            let run = query(&f, &bad);
+            assert!(!run.ok && run.err.contains(why), "{bad:?}: {}", run.err);
+        }
+    }
+
+    #[test]
+    fn query_sorts_limits_and_emits_json() {
+        let f = Fixture::new("data-sort");
+        sample(&f);
+        let sorted = query(&f, &["--cols", "price", "--sort", "-price"]);
+        assert_eq!(sorted.out, "price\n1000\n950\n300\n100\n");
+        let two = query(&f, &["--cols", "kind,price", "--sort", "kind,-price"]);
+        assert_eq!(
+            two.out,
+            "kind\tprice\nlisted\t1000\nlisted\t950\nsold\t300\nsold\t100\n"
+        );
+        let by_agg = query(
+            &f,
+            &[
+                "--group-by",
+                "kind",
+                "--agg",
+                "sum:price",
+                "--sort",
+                "-sum_price",
+            ],
+        );
+        assert_eq!(by_agg.out, "kind\tsum_price\nlisted\t1950\nsold\t400\n");
+        let bad = query(&f, &["--sort", "nope"]);
+        assert!(!bad.ok && bad.err.contains("--sort"), "{}", bad.err);
+
+        let limited = query(&f, &["--cols", "price", "--limit", "2"]);
+        assert_eq!(limited.out, "price\n100\n300\n");
+        assert!(limited.err.contains("ほか 2 行"), "{}", limited.err);
+        let all = query(&f, &["--cols", "price", "--limit", "0"]);
+        assert_eq!(all.out.lines().count(), 5);
+        assert!(all.err.is_empty());
+
+        let json = query(&f, &["--cols", "price,url", "--json", "-w", "kind=sold"]);
         let value: serde_json::Value = serde_json::from_str(&json.out).unwrap();
         assert_eq!(value[0]["price"], 100);
-        assert!(value[0]["url"].is_null());
+        assert_eq!(value[0]["url"], "https://example.com/a");
+        assert!(value[1]["url"].is_null());
+        let avg = query(&f, &["--agg", "avg:price", "--json"]);
+        let value: serde_json::Value = serde_json::from_str(&avg.out).unwrap();
+        assert_eq!(value[0]["avg_price"], 587.5);
     }
 
     #[test]
@@ -3523,35 +3746,86 @@ mod data {
             Some("date,kind,price\n2026-10-18,sold,100\n2026-10-19,listed,\"1,200\"\n"),
         );
         assert!(!comma.ok, "カンマ入りの数値は整数ではない");
-        assert!(
-            f.ika_with(
-                &["data", "append", "prices"],
-                Some("date,kind,price\n2026-10-18,sold,100\n2026-10-19,listed,200\n")
-            )
-            .ok
+        append(
+            &f,
+            "date,kind,price,url\n2026-10-18,sold,100,\n2026-10-19,listed,200,\"a,b\"\n2026-10-20,sold,300,\n",
         );
+        let exported = f.ika(&["data", "export", "prices"]).out;
         assert_eq!(
-            f.ika(&["data", "export", "prices"]).out,
-            "date,kind,price,url\n2026-10-18,sold,100,\n2026-10-19,listed,200,\n"
+            exported,
+            "date,kind,price,url\n2026-10-18,sold,100,\n2026-10-19,listed,200,\"a,b\"\n2026-10-20,sold,300,\n"
         );
 
-        let del = f.ika(&["data", "delete", "prices", "--where", "kind = 'listed'"]);
+        // 書き出したものは、そのまま別のデータセットに入れ直せる
+        let copy = f.ika(&[
+            "data",
+            "new",
+            "copy",
+            "--summary",
+            "s",
+            "--col",
+            "date:date",
+            "--col",
+            "kind:enum(sold|listed)",
+            "--col",
+            "price:int",
+            "--col",
+            "url:string?",
+        ]);
+        assert!(copy.ok, "{}", copy.err);
+        assert!(f.ika_with(&["data", "append", "copy"], Some(&exported)).ok);
+        assert_eq!(f.ika(&["data", "export", "copy"]).out, exported);
+
+        let del = f.ika(&["data", "delete", "prices", "-w", "kind=listed"]);
         assert!(del.ok && del.out.contains("1 行"), "{}", del.err);
-        assert!(
-            !f.ika(&[
-                "data",
-                "delete",
-                "prices",
-                "--where",
-                "1; drop table prices"
-            ])
-            .ok
+        assert_eq!(
+            f.read("data/datasets/prices.csv"),
+            "date,kind,price,url\n2026-10-18,sold,100,\n2026-10-20,sold,300,\n"
         );
-        assert!(f.ika(&["data", "show", "prices"]).out.contains("行数: 1"));
+        for bad in [
+            vec!["data", "delete", "prices"],
+            vec!["data", "delete", "prices", "-w", "1; drop table prices"],
+            vec!["data", "delete", "prices", "-w", "price>x"],
+        ] {
+            assert!(!f.ika(&bad).ok, "{bad:?}");
+        }
+        assert!(f.ika(&["data", "show", "prices"]).out.contains("行数: 2"));
 
         assert!(f.ika(&["data", "rm", "prices"]).ok);
         assert!(!f.ika(&["data", "show", "prices"]).ok);
-        assert!(f.ika(&["check"]).ok);
+        assert!(!f.exists("data/datasets/prices.csv"));
+        assert!(!f.read("data/datasets.csv").contains("prices"));
+        assert!(f.ika(&["data", "ls"]).out.contains("copy"));
+        let check = f.ika(&["check"]);
+        assert!(check.ok, "{}{}", check.out, check.err);
+    }
+
+    #[test]
+    fn serve_shows_datasets_newest_first() {
+        let f = Fixture::new("data-serve");
+        sample(&f);
+        let server = f.serve();
+        let top = get(&server, "/");
+        assert!(
+            top.body.contains("/data/prices") && top.body.contains("4 行"),
+            "{}",
+            top.body
+        );
+        let page = get(&server, "/data/prices");
+        assert_eq!(page.status, 200);
+        let newest = page.body.find("2026-10-02").unwrap();
+        let oldest = page.body.find("2026-09-30").unwrap();
+        assert!(newest < oldest, "新しい行から出す");
+        assert!(page.body.contains("<th>price</th>"));
+        assert_eq!(get(&server, "/data/nope").status, 404);
+        assert_eq!(get(&server, "/data/..%2fprojects").status, 404);
+    }
+
+    #[test]
+    fn sql_is_gone() {
+        let f = Fixture::new("data-no-sql");
+        prices(&f);
+        assert!(!f.ika(&["data", "sql", "select 1"]).ok);
     }
 
     #[test]
@@ -3562,6 +3836,10 @@ mod data {
         for (bad, why) in [
             (vec!["Bad-Name", "--summary", "s", "--col", "a:int"], "名前"),
             (vec![base[0], base[1], base[2], "--col", "a:money"], "型"),
+            (
+                vec![base[0], base[1], base[2], "--col", "a:enum(x;y)"],
+                "enum の ;",
+            ),
             (
                 vec![
                     base[0], base[1], base[2], "--col", "a:int", "--col", "a:int",
@@ -3611,6 +3889,7 @@ mod data {
             ])
             .ok
         );
+        assert!(f.read("data/datasets.csv").contains("x,s,tech,foo,,a:int,"));
         assert!(
             !run(&[base[0], base[1], base[2], "--col", "a:int"]).ok,
             "同名は作れない"
@@ -3618,7 +3897,7 @@ mod data {
     }
 
     #[test]
-    fn writes_are_committed_and_check_catches_drift() {
+    fn writes_are_committed_and_diffable() {
         let f = Fixture::new("data-git");
         let git_init = Command::new("git")
             .args(["init", "-q"])
@@ -3627,27 +3906,86 @@ mod data {
             .unwrap();
         assert!(git_init.success());
         prices(&f);
-        assert!(
-            f.ika_with(
-                &["data", "append", "prices"],
-                Some("date,kind,price\n2026-10-18,sold,100\n")
-            )
-            .ok
-        );
+        append(&f, "date,kind,price\n2026-10-18,sold,100\n");
         let log = f.git(&["log", "--format=%s"]);
         assert!(
             log.contains("data new prices") && log.contains("data append prices (1 rows)"),
             "{log}"
         );
-        assert!(f.exists("data/datasets.sqlite3"));
+        let diff = f.git(&[
+            "show",
+            "--format=",
+            "HEAD",
+            "--",
+            "data/datasets/prices.csv",
+        ]);
+        assert!(
+            diff.contains("+2026-10-18,sold,100,"),
+            "差分で行が読める: {diff}"
+        );
         assert!(f.ika(&["check"]).ok);
+    }
 
-        // 手で作ったテーブルは検出される
-        let conn = rusqlite::Connection::open(f.root().join("data/datasets.sqlite3")).unwrap();
-        conn.execute("CREATE TABLE stray (a)", []).unwrap();
-        drop(conn);
-        let check = f.ika(&["check"]);
-        assert!(!check.ok && check.out.contains("stray"), "{}", check.out);
+    #[test]
+    fn check_catches_drift_in_the_csv_files() {
+        let f = Fixture::new("data-check");
+        sample(&f);
+        assert!(f.ika(&["check"]).ok);
+        let problems = |f: &Fixture| {
+            let run = f.ika(&["check"]);
+            assert!(!run.ok);
+            run.out + &run.err
+        };
+
+        let good = f.read("data/datasets/prices.csv");
+        f.write(
+            "data/datasets/prices.csv",
+            &(good.clone() + "2026-1-1,bought,x,\n2026-10-01,sold,5,\n"),
+        );
+        let out = problems(&f);
+        assert!(
+            out.contains("data/datasets/prices.csv: 6 行目: date"),
+            "{out}"
+        );
+        assert!(
+            out.contains("6 行目: kind") && out.contains("6 行目: price"),
+            "{out}"
+        );
+        assert!(
+            out.contains("7 行目: key（date, kind）が 3 行目と重複"),
+            "{out}"
+        );
+
+        f.write("data/datasets/prices.csv", "date,kind,cost,url\n");
+        assert!(problems(&f).contains("ヘッダ"), "ヘッダが定義と違う");
+        f.write("data/datasets/prices.csv", &good);
+
+        f.write("data/datasets/stray.csv", "a\n1\n");
+        assert!(
+            problems(&f).contains("data/datasets/stray.csv"),
+            "定義がない行のファイル"
+        );
+        fs::remove_file(f.root().join("data/datasets/stray.csv")).unwrap();
+
+        let registry = f.read("data/datasets.csv");
+        f.write(
+            "data/datasets.csv",
+            &(registry.clone() + "ghost,s,nope,bar,,a:int,2026-10-18\n"),
+        );
+        let out = problems(&f);
+        assert!(out.contains("ghost: 未登録の領域です: nope"), "{out}");
+        assert!(out.contains("ghost: 未登録のプロダクトです: bar"), "{out}");
+        assert!(out.contains("ghost: 行のファイルがありません"), "{out}");
+        f.write("data/datasets.csv", &registry);
+
+        f.write("data/datasets.sqlite3", "");
+        let out = problems(&f);
+        assert!(
+            out.contains("data/datasets.sqlite3") && out.contains("CSV に移して"),
+            "{out}"
+        );
+        fs::remove_file(f.root().join("data/datasets.sqlite3")).unwrap();
+        assert!(f.ika(&["check"]).ok);
     }
 }
 

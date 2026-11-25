@@ -1,23 +1,26 @@
-//! `ika data`: 表形式データ（価格の履歴・計測値・ログなど）を SQLite に溜める。
-//! 人が直接読むものではないので、読み書きは `ika data` か `ika serve` を通す。
+//! `ika data`: 表形式データ（価格の履歴・計測値・ログなど）を CSV に溜める。
+//! 定義は登録簿 `data/datasets.csv`、行は `data/datasets/<name>.csv`。
+//! 書き込みは検証を通すため `ika data` だけで行い、読むときは `show`・`query` で要る分だけ出す。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use clap::{Subcommand, ValueEnum};
-use rusqlite::types::{Value, ValueRef};
 use serde_json::json;
 
+use crate::kb::atomic;
 use crate::registry;
 use crate::vcs;
 
-pub mod db;
+pub mod query;
 pub mod schema;
+pub mod store;
 
-use db::Dataset;
-use schema::{Column, is_ident, quote};
+use schema::{Column, Type, Value, is_ident};
+use store::Dataset;
 
 #[derive(Subcommand)]
 pub enum Command {
@@ -43,7 +46,7 @@ pub enum Command {
     },
     /// データセットを一覧する
     Ls,
-    /// 定義・行数・末尾の数行を見る
+    /// 定義・行数・列ごとの要約・末尾の数行を見る
     Show {
         name: String,
         /// 末尾から何行見せるか
@@ -57,20 +60,38 @@ pub enum Command {
         #[arg(long, value_enum, default_value_t = OnConflict::Error)]
         on_conflict: OnConflict,
     },
-    /// 読み取り専用で SELECT を実行する（テーブル名はデータセット名）
-    Sql {
-        query: String,
+    /// 条件で絞り込み、列を選び、グループごとに集計する（全行を読まずに要る分だけ出す）
+    Query {
+        name: String,
+        /// 条件 `列 演算子 値`（= != < <= > >= ~ !~。~ は含む）。繰り返すと AND。`列=` は空欄の行
+        #[arg(short = 'w', long = "where")]
+        conditions: Vec<String>,
+        /// 出す列（カンマ区切り。集計しないとき）
+        #[arg(long, value_delimiter = ',')]
+        cols: Vec<String>,
+        /// グループにする列（カンマ区切り）
+        #[arg(long, value_delimiter = ',')]
+        group_by: Vec<String>,
+        /// 集計 count / count:列 / sum:列 / avg:列 / min:列 / max:列（カンマ区切り）
+        #[arg(long, value_delimiter = ',')]
+        agg: Vec<String>,
+        /// 並べ替える出力の列（カンマ区切り。`-列` で降順）
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        sort: Vec<String>,
+        /// 出す行の上限（0 で全部）
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
         /// JSON の配列で出力する（既定はタブ区切り）
         #[arg(long)]
         json: bool,
     },
     /// CSV として標準出力へ書き出す（移行・共有用）
     Export { name: String },
-    /// 条件に合う行を消す（`--where` は SQL の条件式）。間違った行の訂正は、消して追記し直す
+    /// 条件に合う行を消す（条件は query と同じ。繰り返すと AND）。間違った行の訂正は、消して追記し直す
     Delete {
         name: String,
-        #[arg(long = "where")]
-        condition: String,
+        #[arg(short = 'w', long = "where", required = true)]
+        conditions: Vec<String>,
     },
     /// データセットを丸ごと消す
     Rm { name: String },
@@ -99,9 +120,34 @@ pub fn run(root: &Path, command: Command) -> Result<()> {
         Command::Ls => ls(root),
         Command::Show { name, tail } => show(root, &name, tail),
         Command::Append { name, on_conflict } => append(root, &name, on_conflict),
-        Command::Sql { query, json } => sql(root, &query, json),
+        Command::Query {
+            name,
+            conditions,
+            cols,
+            group_by,
+            agg,
+            sort,
+            limit,
+            json,
+        } => {
+            let ds = store::get(root, &name)?;
+            let conditions = query::parse_conditions(&ds, &conditions)?;
+            let rows = store::rows(root, &ds)?;
+            let table = query::run(
+                &ds,
+                &rows,
+                &query::Spec {
+                    conditions: &conditions,
+                    cols: &cols,
+                    group_by: &group_by,
+                    aggs: &agg,
+                    sort: &sort,
+                },
+            )?;
+            print_table(table, limit, json)
+        }
         Command::Export { name } => export(root, &name),
-        Command::Delete { name, condition } => delete(root, &name, &condition),
+        Command::Delete { name, conditions } => delete(root, &name, &conditions),
         Command::Rm { name } => rm(root, &name),
     }
 }
@@ -158,15 +204,15 @@ fn new(
         columns,
         created: chrono::Local::now().format("%Y-%m-%d").to_string(),
     };
-    let mut conn = db::open_rw(root, true)?;
-    if db::find(&conn, &dataset.name)?.is_some() {
+    let mut entries = store::entries(root)?;
+    if entries.iter().any(|e| e.name == dataset.name) {
         bail!("すでにあります: {}", dataset.name);
     }
-    let tx = conn.transaction()?;
-    tx.execute(&db::create_table_sql(&dataset), [])?;
-    db::insert_meta(&tx, &dataset)?;
-    tx.commit()?;
-    drop(conn);
+    let rows = store::rows_path(root, &dataset.name);
+    fs::create_dir_all(root.join(store::DIR))?;
+    atomic::create_new(&rows, &store::rows_text(&dataset, &[])?)?;
+    entries.push(dataset.entry());
+    store::save_entries(root, &entries)?;
 
     vcs::commit(root, &format!("data new {}", dataset.name));
     println!("作りました: {}", dataset.name);
@@ -180,30 +226,81 @@ fn new(
 }
 
 fn ls(root: &Path) -> Result<()> {
-    let Some(conn) = db::open_ro(root)? else {
-        return Ok(());
-    };
-    for ds in db::list(&conn)? {
+    for ds in store::list(root)? {
         println!(
             "{:<24} {:>7} 行  {}",
             ds.name,
-            db::row_count(&conn, &ds.name)?,
+            store::row_count(root, &ds)?,
             ds.summary
         );
     }
     Ok(())
 }
 
-fn open_dataset(root: &Path, name: &str) -> Result<(rusqlite::Connection, Dataset)> {
-    let Some(conn) = db::open_ro(root)? else {
-        bail!("データセットがありません（`ika data new` で作ってください）");
-    };
-    let ds = db::get(&conn, name)?;
-    Ok((conn, ds))
+/// 表示用。タブと改行は空白にして、1行1レコードを保つ
+fn render(value: &Value) -> String {
+    value.to_cell().replace(['\t', '\n', '\r'], " ")
+}
+
+fn number(x: f64) -> String {
+    query::round2(x).to_string()
+}
+
+/// 列ごとの要約（`show` 用）。全行を出さずに、値の形と範囲が分かるようにする
+fn summarize(col: &Column, index: usize, rows: &[Vec<Value>]) -> String {
+    let values: Vec<&Value> = rows
+        .iter()
+        .map(|r| &r[index])
+        .filter(|v| **v != Value::Null)
+        .collect();
+    let mut parts = Vec::new();
+    if !col.required {
+        parts.push(format!("空欄 {}", rows.len() - values.len()));
+    }
+    if !values.is_empty() {
+        let min = values.iter().min_by(|a, b| a.compare(b)).unwrap();
+        let max = values.iter().max_by(|a, b| a.compare(b)).unwrap();
+        match &col.ty {
+            Type::Int | Type::Float => {
+                let sum: f64 = values.iter().filter_map(|v| v.number()).sum();
+                parts.push(format!(
+                    "最小 {} / 最大 {} / 平均 {}",
+                    render(min),
+                    render(max),
+                    number(sum / values.len() as f64)
+                ));
+            }
+            Type::Date => parts.push(format!("最小 {} / 最大 {}", render(min), render(max))),
+            Type::Enum(options) => {
+                let counts: Vec<String> = options
+                    .iter()
+                    .map(|o| {
+                        let n = values.iter().filter(|v| v.to_cell() == *o).count();
+                        format!("{o} {n}")
+                    })
+                    .collect();
+                parts.push(counts.join(" / "));
+            }
+            Type::Bool => {
+                let yes = values.iter().filter(|v| **v == &Value::Bool(true)).count();
+                parts.push(format!("true {yes} / false {}", values.len() - yes));
+            }
+            Type::String => {
+                let kinds: HashSet<String> = values.iter().map(|v| v.to_cell()).collect();
+                parts.push(format!("{} 種類", kinds.len()));
+            }
+        }
+    }
+    if parts.is_empty() {
+        col.spec()
+    } else {
+        format!("{}  {}", col.spec(), parts.join(" · "))
+    }
 }
 
 fn show(root: &Path, name: &str, tail: usize) -> Result<()> {
-    let (conn, ds) = open_dataset(root, name)?;
+    let ds = store::get(root, name)?;
+    let rows = store::rows(root, &ds)?;
     println!("{}  {}", ds.name, ds.summary);
     println!("作成: {}", ds.created);
     if !ds.domain.is_empty() {
@@ -212,28 +309,24 @@ fn show(root: &Path, name: &str, tail: usize) -> Result<()> {
     if !ds.projects.is_empty() {
         println!("プロダクト: {}", ds.projects.join(", "));
     }
-    println!("行数: {}", db::row_count(&conn, &ds.name)?);
+    println!("行数: {}", rows.len());
     if !ds.key.is_empty() {
         println!("key: {}", ds.key.join(", "));
     }
     println!("列:");
-    for col in &ds.columns {
-        println!("  {}", col.spec());
+    for (i, col) in ds.columns.iter().enumerate() {
+        println!("  {}", summarize(col, i, &rows));
     }
-    if tail > 0 {
-        let order = format!(
-            "SELECT * FROM (SELECT rowid AS _rowid, * FROM {} ORDER BY rowid DESC LIMIT {tail}) ORDER BY _rowid",
-            quote(&ds.name)
-        );
-        let (header, rows) = db::fetch(&conn, &order)?;
-        if !rows.is_empty() {
-            println!("末尾 {} 行:", rows.len());
-            println!("  {}", header[1..].join("\t"));
-            for row in rows {
-                println!("  {}", row[1..].join("\t"));
-            }
+    if tail > 0 && !rows.is_empty() {
+        let start = rows.len().saturating_sub(tail);
+        println!("末尾 {} 行:", rows.len() - start);
+        println!("  {}", ds.names().join("\t"));
+        for row in &rows[start..] {
+            let cells: Vec<String> = row.iter().map(render).collect();
+            println!("  {}", cells.join("\t"));
         }
     }
+    println!("絞り込み・集計は `ika data query {name} -w … --group-by … --agg …`");
     Ok(())
 }
 
@@ -252,14 +345,19 @@ fn read_stdin() -> Result<String> {
 /// 最大これだけの行エラーを並べて、あとは省略する
 const MAX_REPORTED: usize = 10;
 
-fn append(root: &Path, name: &str, on_conflict: OnConflict) -> Result<()> {
-    let input = read_stdin()?;
-    let mut conn = db::open_rw(root, false)?;
-    let ds = db::get(&conn, name)?;
-    if on_conflict != OnConflict::Error && ds.key.is_empty() {
-        bail!("--on-conflict は key があるデータセットだけで使えます（重複の判定がありません）");
+fn report(errors: Vec<String>, lead: &str) -> anyhow::Error {
+    let total = errors.len();
+    let shown: Vec<String> = errors.into_iter().take(MAX_REPORTED).collect();
+    let more = total - shown.len();
+    let mut message = format!("{lead}:\n  {}", shown.join("\n  "));
+    if more > 0 {
+        message.push_str(&format!("\n  …ほか {more} 件"));
     }
+    anyhow::anyhow!(message)
+}
 
+/// 標準入力の CSV を、定義の列順・CSV に書く形の行にする。1行でも不正なら失敗する
+fn parse_input(ds: &Dataset, input: &str) -> Result<Vec<Vec<String>>> {
     let mut reader = csv::Reader::from_reader(input.as_bytes());
     let headers = reader.headers().context("ヘッダ行を読めません")?.clone();
     // CSV の列 -> 定義の列の位置
@@ -267,7 +365,10 @@ fn append(root: &Path, name: &str, on_conflict: OnConflict) -> Result<()> {
     for header in &headers {
         let header = header.trim();
         let Some(idx) = ds.columns.iter().position(|c| c.name == header) else {
-            bail!("定義にない列です: {header}（列: {}）", names(&ds));
+            bail!(
+                "定義にない列です: {header}（列: {}）",
+                ds.names().join(", ")
+            );
         };
         if position.contains(&idx) {
             bail!("列が重複しています: {header}");
@@ -280,7 +381,7 @@ fn append(root: &Path, name: &str, on_conflict: OnConflict) -> Result<()> {
         }
     }
 
-    let mut rows: Vec<Vec<Value>> = Vec::new();
+    let mut rows = Vec::new();
     let mut errors = Vec::new();
     for record in reader.records() {
         let record = record.context("CSV を読めません")?;
@@ -306,214 +407,219 @@ fn append(root: &Path, name: &str, on_conflict: OnConflict) -> Result<()> {
             }
         }
         if !bad {
-            rows.push(values);
+            rows.push(values.iter().map(Value::to_cell).collect());
         }
     }
     if !errors.is_empty() {
-        let total = errors.len();
-        errors.truncate(MAX_REPORTED);
-        let more = total - errors.len();
-        let mut message = format!(
-            "不正な行があるため、何も追記していません:\n  {}",
-            errors.join("\n  ")
-        );
-        if more > 0 {
-            message.push_str(&format!("\n  …ほか {more} 件"));
-        }
-        bail!(message);
+        return Err(report(errors, "不正な行があるため、何も追記していません"));
     }
     if rows.is_empty() {
         bail!("データ行がありません");
     }
+    Ok(rows)
+}
 
-    let verb = match on_conflict {
-        OnConflict::Error => "INSERT",
-        OnConflict::Skip => "INSERT OR IGNORE",
-        OnConflict::Replace => "INSERT OR REPLACE",
-    };
-    let columns: Vec<String> = ds.columns.iter().map(|c| quote(&c.name)).collect();
-    let marks: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
-    let insert = format!(
-        "{verb} INTO {} ({}) VALUES ({})",
-        quote(&ds.name),
-        columns.join(", "),
-        marks.join(", ")
-    );
-    let before = db::row_count(&conn, &ds.name)?;
-    let tx = conn.transaction()?;
-    {
-        let mut stmt = tx.prepare(&insert)?;
-        for (n, row) in rows.iter().enumerate() {
-            stmt.execute(rusqlite::params_from_iter(row)).map_err(|err| {
-                if is_unique_violation(&err) {
-                    anyhow::anyhow!(
-                        "{} 件目の行がキー（{}）で既存の行と重複しています。何も追記していません（--on-conflict skip|replace で扱いを選べます）",
-                        n + 1,
-                        ds.key.join(", ")
-                    )
-                } else {
-                    anyhow::Error::new(err)
-                }
-            })?;
-        }
+fn append(root: &Path, name: &str, on_conflict: OnConflict) -> Result<()> {
+    let input = read_stdin()?;
+    let ds = store::get(root, name)?;
+    if on_conflict != OnConflict::Error && ds.key.is_empty() {
+        bail!("--on-conflict は key があるデータセットだけで使えます（重複の判定がありません）");
     }
-    tx.commit()?;
-    let after = db::row_count(&conn, &ds.name)?;
-    drop(conn);
+    let incoming = parse_input(&ds, &input)?;
+    let positions = ds.key_positions();
 
-    let added = after - before;
-    let skipped = rows.len() as i64 - added;
+    let (mut added, mut skipped, mut replaced, mut total) = (0, 0, 0, 0);
+    atomic::modify(&store::rows_path(root, &ds.name), |text| {
+        let mut rows = store::parse_rows(&ds, text)?;
+        // key -> 行の位置（既存の行と、この入力で足した行）
+        let mut index: HashMap<Vec<String>, usize> = HashMap::new();
+        if !positions.is_empty() {
+            for (i, row) in rows.iter().enumerate() {
+                index.insert(store::key_of(&positions, row), i);
+            }
+        }
+        for (n, row) in incoming.into_iter().enumerate() {
+            if positions.is_empty() {
+                rows.push(row);
+                added += 1;
+                continue;
+            }
+            let key = store::key_of(&positions, &row);
+            match (index.get(&key).copied(), on_conflict) {
+                (None, _) => {
+                    index.insert(key, rows.len());
+                    rows.push(row);
+                    added += 1;
+                }
+                (Some(_), OnConflict::Error) => bail!(
+                    "{} 件目の行がキー（{}）で既存の行と重複しています。何も追記していません（--on-conflict skip|replace で扱いを選べます）",
+                    n + 1,
+                    ds.key.join(", ")
+                ),
+                (Some(_), OnConflict::Skip) => skipped += 1,
+                (Some(i), OnConflict::Replace) => {
+                    rows[i] = row;
+                    replaced += 1;
+                }
+            }
+        }
+        total = rows.len();
+        store::rows_text(&ds, &rows)
+    })?;
+
     vcs::commit(root, &format!("data append {name} ({added} rows)"));
-    match on_conflict {
-        OnConflict::Skip if skipped > 0 => {
-            println!(
-                "追記しました: {name} に {added} 行（重複 {skipped} 行は入れていません。計 {after} 行）"
-            )
-        }
-        OnConflict::Replace if skipped > 0 => {
-            println!("追記しました: {name} に {added} 行、{skipped} 行を置き換え（計 {after} 行）")
-        }
-        _ => println!("追記しました: {name} に {added} 行（計 {after} 行）"),
+    if skipped > 0 {
+        println!(
+            "追記しました: {name} に {added} 行（重複 {skipped} 行は入れていません。計 {total} 行）"
+        );
+    } else if replaced > 0 {
+        println!("追記しました: {name} に {added} 行、{replaced} 行を置き換え（計 {total} 行）");
+    } else {
+        println!("追記しました: {name} に {added} 行（計 {total} 行）");
     }
     Ok(())
 }
 
-fn is_unique_violation(err: &rusqlite::Error) -> bool {
-    matches!(
-        err,
-        rusqlite::Error::SqliteFailure(e, _)
-            if e.code == rusqlite::ErrorCode::ConstraintViolation
-                && e.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
-    )
-}
-
-fn names(ds: &Dataset) -> String {
-    ds.columns
-        .iter()
-        .map(|c| c.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn sql(root: &Path, query: &str, as_json: bool) -> Result<()> {
-    let Some(conn) = db::open_ro(root)? else {
-        bail!("データセットがありません（`ika data new` で作ってください）");
-    };
-    let mut stmt = conn.prepare(query).context("SQL を解釈できません")?;
-    if !stmt.readonly() {
-        bail!("読み取り専用です（SELECT だけ実行できます）");
+fn json_value(value: &Value) -> serde_json::Value {
+    match value {
+        Value::Null => serde_json::Value::Null,
+        Value::Int(n) => json!(n),
+        Value::Float(x) => json!(x),
+        Value::Bool(b) => json!(b),
+        Value::Text(s) => json!(s),
     }
-    let header: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-    let count = header.len();
-    let mut rows = stmt.query([])?;
+}
+
+fn print_table(mut table: query::Table, limit: usize, as_json: bool) -> Result<()> {
+    let total = table.rows.len();
+    if limit > 0 && total > limit {
+        table.rows.truncate(limit);
+    }
     let mut out = io::stdout().lock();
     if as_json {
-        let mut all = Vec::new();
-        while let Some(row) = rows.next()? {
-            let mut object = serde_json::Map::new();
-            for (i, name) in header.iter().enumerate() {
-                object.insert(name.clone(), json_value(row.get_ref(i)?));
-            }
-            all.push(serde_json::Value::Object(object));
-        }
+        let all: Vec<serde_json::Value> = table
+            .rows
+            .iter()
+            .map(|row| {
+                let object: serde_json::Map<String, serde_json::Value> = table
+                    .header
+                    .iter()
+                    .zip(row)
+                    .map(|(h, v)| (h.clone(), json_value(v)))
+                    .collect();
+                serde_json::Value::Object(object)
+            })
+            .collect();
         writeln!(out, "{}", serde_json::to_string_pretty(&all)?)?;
     } else {
-        writeln!(out, "{}", header.join("\t"))?;
-        while let Some(row) = rows.next()? {
-            let cells: Vec<String> = (0..count)
-                .map(|i| Ok(db::render(row.get_ref(i)?)))
-                .collect::<Result<_>>()?;
+        writeln!(out, "{}", table.header.join("\t"))?;
+        for row in &table.rows {
+            let cells: Vec<String> = row.iter().map(render).collect();
             writeln!(out, "{}", cells.join("\t"))?;
         }
     }
-    Ok(())
-}
-
-fn json_value(value: ValueRef) -> serde_json::Value {
-    match value {
-        ValueRef::Null => serde_json::Value::Null,
-        ValueRef::Integer(n) => json!(n),
-        ValueRef::Real(x) => json!(x),
-        ValueRef::Text(bytes) => json!(String::from_utf8_lossy(bytes)),
-        ValueRef::Blob(bytes) => json!(format!("<blob {} bytes>", bytes.len())),
+    out.flush()?;
+    if total > table.rows.len() {
+        eprintln!(
+            "…ほか {} 行（全 {total} 行。--limit で増やせる。--limit 0 で全部）",
+            total - table.rows.len()
+        );
     }
+    Ok(())
 }
 
 fn export(root: &Path, name: &str) -> Result<()> {
-    let (conn, ds) = open_dataset(root, name)?;
-    let columns: Vec<String> = ds.columns.iter().map(|c| quote(&c.name)).collect();
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {} FROM {} ORDER BY rowid",
-        columns.join(", "),
-        quote(&ds.name)
-    ))?;
-    let mut writer = csv::Writer::from_writer(io::stdout().lock());
-    writer.write_record(ds.columns.iter().map(|c| c.name.as_str()))?;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let cells = (0..ds.columns.len())
-            .map(|i| {
-                Ok(match row.get_ref(i)? {
-                    ValueRef::Null => String::new(),
-                    ValueRef::Integer(n) => n.to_string(),
-                    ValueRef::Real(x) => x.to_string(),
-                    ValueRef::Text(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-                    ValueRef::Blob(_) => String::new(),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        writer.write_record(&cells)?;
-    }
-    writer.flush()?;
+    let ds = store::get(root, name)?;
+    // 書き込みは常に `rows_text` を通るので、ファイルの本文がそのまま追記に渡し直せる形
+    let raw = store::raw_rows(root, &ds)?;
+    let mut out = io::stdout().lock();
+    out.write_all(store::rows_text(&ds, &raw)?.as_bytes())?;
+    out.flush()?;
     Ok(())
 }
 
-fn delete(root: &Path, name: &str, condition: &str) -> Result<()> {
-    if condition.trim().is_empty() {
-        bail!("--where が空です（全部消すなら `ika data rm` でデータセットごと消します）");
+fn delete(root: &Path, name: &str, conditions: &[String]) -> Result<()> {
+    let ds = store::get(root, name)?;
+    let conditions = query::parse_conditions(&ds, conditions)?;
+    if conditions.is_empty() {
+        bail!("条件（-w）が要ります（全部消すなら `ika data rm` でデータセットごと消します）");
     }
-    let conn = db::open_rw(root, false)?;
-    let ds = db::get(&conn, name)?;
-    // 条件式に `;` や副問い合わせで別の処理を紛れ込ませない: 1文だけを実行する
-    let removed = conn
-        .execute(
-            &format!("DELETE FROM {} WHERE {condition}", quote(&ds.name)),
-            [],
-        )
-        .context("条件で消せませんでした")?;
-    drop(conn);
-    vcs::commit(root, &format!("data delete {name} ({removed} rows)"));
+    let mut removed = 0;
+    atomic::modify(&store::rows_path(root, &ds.name), |text| {
+        let raw = store::parse_rows(&ds, text)?;
+        let typed = store::typed(&ds, &raw)?;
+        let kept: Vec<Vec<String>> = raw
+            .into_iter()
+            .zip(&typed)
+            .filter(|(_, row)| !query::matches_all(&conditions, row))
+            .map(|(raw, _)| raw)
+            .collect();
+        removed = typed.len() - kept.len();
+        store::rows_text(&ds, &kept)
+    })?;
+    if removed > 0 {
+        vcs::commit(root, &format!("data delete {name} ({removed} rows)"));
+    }
     println!("消しました: {name} から {removed} 行");
     Ok(())
 }
 
 fn rm(root: &Path, name: &str) -> Result<()> {
-    let mut conn = db::open_rw(root, false)?;
-    let ds = db::get(&conn, name)?;
-    let rows = db::row_count(&conn, &ds.name)?;
-    let tx = conn.transaction()?;
-    tx.execute(&format!("DROP TABLE {}", quote(&ds.name)), [])?;
-    tx.execute("DELETE FROM _datasets WHERE name = ?1", [&ds.name])?;
-    tx.commit()?;
-    drop(conn);
+    let ds = store::get(root, name)?;
+    let rows = store::row_count(root, &ds).unwrap_or(0);
+    let entries: Vec<store::Entry> = store::entries(root)?
+        .into_iter()
+        .filter(|e| e.name != ds.name)
+        .collect();
+    store::save_entries(root, &entries)?;
+    let file = store::rows_path(root, &ds.name);
+    if file.exists() {
+        fs::remove_file(&file)?;
+    }
     vcs::commit(root, &format!("data rm {name}"));
     println!("消しました: {name}（{rows} 行。履歴は git に残っています）");
     Ok(())
 }
 
-/// `ika check` 用。`_datasets` の定義と、実際のテーブル・登録簿との食い違いを返す
+/// `ika check` 用。登録簿の定義と行ファイルの食い違い・型に合わないセル・key の重複を返す
 pub fn check(root: &Path) -> Result<Vec<String>> {
     let mut problems = Vec::new();
-    let Some(conn) = db::open_ro(root)? else {
-        return Ok(problems);
+    if root.join(store::LEGACY).exists() {
+        problems.push(format!(
+            "{}: 以前の形式（SQLite）のデータセットです。CSV に移してください（手順は ika のリポジトリの docs/data-format.md「以前の形式から移す」）",
+            store::LEGACY
+        ));
+    }
+    let entries = match store::entries(root) {
+        Ok(entries) => entries,
+        Err(err) => {
+            problems.push(format!("{}: {err:#}", store::REGISTRY));
+            return Ok(problems);
+        }
     };
     let domains = registry::domains(root)?;
     let projects = registry::projects(root)?;
-    for ds in db::list(&conn)? {
-        let mut report = |msg: String| problems.push(format!("{}: {}: {msg}", db::FILE, ds.name));
-        if !is_ident(&ds.name) {
-            report("データセット名が不正です".into());
+    let files = store::row_files(root)?;
+    let mut seen = HashSet::new();
+    for entry in &entries {
+        let mut report = |msg: String| {
+            problems.push(format!("{}: {}: {msg}", store::REGISTRY, entry.name));
+        };
+        if !seen.insert(entry.name.clone()) {
+            report("同じ名前の定義が 2 つあります".into());
+            continue;
         }
+        if !is_ident(&entry.name) {
+            report("データセット名が不正です".into());
+            continue;
+        }
+        let ds = match entry.dataset() {
+            Ok(ds) => ds,
+            Err(err) => {
+                report(format!("列の定義が不正です: {err}"));
+                continue;
+            }
+        };
         if !ds.domain.is_empty() && !domains.iter().any(|d| d.name == ds.domain) {
             report(format!("未登録の領域です: {}", ds.domain));
         }
@@ -523,26 +629,61 @@ pub fn check(root: &Path) -> Result<Vec<String>> {
             }
         }
         for k in &ds.key {
-            if !ds.columns.iter().any(|c| &c.name == k) {
-                report(format!("key の列が定義にありません: {k}"));
+            match ds.columns.iter().find(|c| &c.name == k) {
+                None => report(format!("key の列が定義にありません: {k}")),
+                Some(c) if !c.required => report(format!("key の列が省略可です: {k}")),
+                Some(_) => {}
             }
         }
-        let actual = db::table_columns(&conn, &ds.name)?;
-        let expected: Vec<String> = ds.columns.iter().map(|c| c.name.clone()).collect();
-        if actual.is_empty() {
-            report("テーブルがありません".into());
-        } else if actual != expected {
+        if !files.contains(&ds.name) {
             report(format!(
-                "定義の列（{}）と実際のテーブルの列（{}）が違います",
-                expected.join(", "),
-                actual.join(", ")
+                "行のファイルがありません: {}",
+                store::rows_rel(&ds.name)
             ));
+            continue;
+        }
+        let rel = store::rows_rel(&ds.name);
+        let raw = match store::read_text(root, &ds).and_then(|t| store::parse_rows(&ds, &t)) {
+            Ok(raw) => raw,
+            Err(err) => {
+                problems.push(format!("{rel}: {err:#}"));
+                continue;
+            }
+        };
+        let positions = ds.key_positions();
+        let mut keys: HashMap<Vec<String>, usize> = HashMap::new();
+        let mut errors = Vec::new();
+        for (i, row) in raw.iter().enumerate() {
+            let line = i + 2;
+            for (cell, col) in row.iter().zip(&ds.columns) {
+                if let Err(err) = col.parse_cell(cell) {
+                    errors.push(format!("{rel}: {line} 行目: {}: {err}", col.name));
+                }
+            }
+            if !positions.is_empty() {
+                let key = store::key_of(&positions, row);
+                if let Some(first) = keys.insert(key.clone(), line) {
+                    errors.push(format!(
+                        "{rel}: {line} 行目: key（{}）が {first} 行目と重複しています: {}",
+                        ds.key.join(", "),
+                        key.join(", ")
+                    ));
+                }
+            }
+        }
+        let total = errors.len();
+        problems.extend(errors.into_iter().take(MAX_REPORTED));
+        if total > MAX_REPORTED {
+            problems.push(format!("{rel}: …ほか {} 件", total - MAX_REPORTED));
         }
     }
-    for table in db::unregistered_tables(&conn)? {
+    let mut stray: Vec<&String> = files.iter().filter(|f| !seen.contains(*f)).collect();
+    stray.sort();
+    for name in stray {
         problems.push(format!(
-            "{}: {table}: _datasets に定義がないテーブルです（`ika data new` で作ってください）",
-            db::FILE
+            "{}: {} に定義がない行のファイルです（`ika data new` で作ってください）",
+            store::rows_rel(name),
+            store::REGISTRY
         ));
     }
     Ok(problems)
